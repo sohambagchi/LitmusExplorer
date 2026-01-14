@@ -28,6 +28,8 @@ type StoreState = {
   setEdges: (updater: EdgesUpdater) => void;
   onNodesChange: (changes: NodeChange[]) => void;
   onEdgesChange: (changes: EdgeChange[]) => void;
+  deleteNode: (nodeId: string) => void;
+  deleteThread: (threadId: string) => void;
   addMemoryVar: (variable: MemoryVariable) => void;
   updateMemoryVar: (id: string, updates: Partial<MemoryVariable>) => void;
   toggleMemorySelection: (id: string) => void;
@@ -104,6 +106,57 @@ export const useStore = create<StoreState>()((set, get) => ({
     set((state) => ({ nodes: applyNodeChanges(changes, state.nodes) })),
   onEdgesChange: (changes) =>
     set((state) => ({ edges: applyEdgeChanges(changes, state.edges) })),
+  deleteNode: (nodeId) => {
+    const { nodes, edges, activeBranch } = get();
+    const node = nodes.find((candidate) => candidate.id === nodeId);
+    const isBranch = node?.data.operation.type === "BRANCH";
+
+    const nextNodes = nodes
+      .filter((candidate) => candidate.id !== nodeId)
+      .map((candidate) => {
+        if (!isBranch || candidate.data.branchId !== nodeId) {
+          return candidate;
+        }
+        const nextData = { ...candidate.data };
+        delete nextData.branchId;
+        delete nextData.branchPath;
+        return { ...candidate, data: nextData };
+      });
+
+    const nextEdges = edges.filter(
+      (edge) => edge.source !== nodeId && edge.target !== nodeId
+    );
+
+    set({
+      nodes: nextNodes,
+      edges: nextEdges,
+      activeBranch: activeBranch?.branchId === nodeId ? null : activeBranch,
+    });
+
+    get().validateGraph();
+  },
+  deleteThread: (threadId) => {
+    const { nodes, edges, threads, activeBranch } = get();
+    const nodeIdsToDelete = new Set(
+      nodes.filter((node) => node.data.threadId === threadId).map((node) => node.id)
+    );
+
+    const nextNodes = nodes.filter((node) => !nodeIdsToDelete.has(node.id));
+    const nextEdges = edges.filter(
+      (edge) => !nodeIdsToDelete.has(edge.source) && !nodeIdsToDelete.has(edge.target)
+    );
+
+    const nextThreads = threads.filter((id) => id !== threadId);
+
+    set({
+      nodes: nextNodes,
+      edges: nextEdges,
+      threads: nextThreads.length > 0 ? nextThreads : ["T0"],
+      activeBranch: activeBranch && nodeIdsToDelete.has(activeBranch.branchId) ? null : activeBranch,
+    });
+
+    get().validateGraph();
+  },
   addMemoryVar: (variable) =>
     set((state) => ({ memoryEnv: [...state.memoryEnv, variable] })),
   updateMemoryVar: (id, updates) =>

@@ -1,29 +1,27 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Handle, Position, type NodeProps } from "reactflow";
 import type { BranchPath, TraceNodeData } from "../types";
 import { useStore } from "../store/useStore";
+import { evaluateBranchCondition } from "../utils/branchEvaluation";
 
 const BranchNode = ({ id, data, selected }: NodeProps<TraceNodeData>) => {
-  const [path, setPath] = useState<BranchPath>("then");
-  const activeBranch = useStore((state) => state.activeBranch);
-  const setActiveBranch = useStore((state) => state.setActiveBranch);
+  const memoryEnv = useStore((state) => state.memoryEnv);
+  const setNodes = useStore((state) => state.setNodes);
 
-  const isActive = activeBranch?.branchId === id;
-  const isCollapsed = isActive && activeBranch?.path === path;
+  const condition = data.operation.branchCondition;
+  const evaluatedPath = useMemo<BranchPath>(() => {
+    if (!condition) {
+      return "then";
+    }
+    return evaluateBranchCondition(condition, memoryEnv) ? "then" : "else";
+  }, [condition, memoryEnv]);
 
   const label = useMemo(
     () => data.operation.text ?? "BRANCH",
     [data.operation.text]
   );
 
-  const handleCollapse = () => {
-    if (isCollapsed) {
-      setActiveBranch(null);
-      return;
-    }
-
-    setActiveBranch({ branchId: id, path });
-  };
+  const showBothFutures = data.operation.branchShowBothFutures ?? false;
 
   return (
     <div className="flex flex-col items-center gap-1.5 text-[10px] text-slate-900">
@@ -43,36 +41,56 @@ const BranchNode = ({ id, data, selected }: NodeProps<TraceNodeData>) => {
         <Handle
           type="source"
           position={Position.Right}
-          className="!h-1.5 !w-1.5 !bg-slate-700"
+          className="!h-2 !w-2 !bg-emerald-600"
+          id="then"
+          style={{ top: "34%" }}
+        />
+        <Handle
+          type="source"
+          position={Position.Right}
+          className="!h-2 !w-2 !bg-rose-600"
+          id="else"
+          style={{ top: "66%" }}
         />
       </div>
       <div className="flex items-center gap-1">
+        <div
+          className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ${
+            evaluatedPath === "then"
+              ? "bg-emerald-200 text-emerald-900"
+              : "bg-rose-200 text-rose-900"
+          }`}
+        >
+          {evaluatedPath === "then" ? "True" : "False"}
+        </div>
         <button
           type="button"
-          className={`rounded px-1.5 py-0.5 text-[9px] ${
-            path === "then" ? "bg-slate-800 text-white" : "bg-slate-200"
+          className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ${
+            showBothFutures ? "bg-slate-800 text-white" : "bg-slate-200 text-slate-800"
           }`}
-          onClick={() => setPath("then")}
+          onClick={(event) => {
+            event.stopPropagation();
+            setNodes((current) =>
+              current.map((node) => {
+                if (node.id !== id) {
+                  return node;
+                }
+                return {
+                  ...node,
+                  data: {
+                    ...node.data,
+                    operation: {
+                      ...node.data.operation,
+                      branchShowBothFutures: !showBothFutures,
+                    },
+                  },
+                };
+              })
+            );
+          }}
+          title="Show both futures"
         >
-          Then
-        </button>
-        <button
-          type="button"
-          className={`rounded px-1.5 py-0.5 text-[9px] ${
-            path === "else" ? "bg-slate-800 text-white" : "bg-slate-200"
-          }`}
-          onClick={() => setPath("else")}
-        >
-          Else
-        </button>
-        <button
-          type="button"
-          className={`rounded px-1.5 py-0.5 text-[9px] ${
-            isCollapsed ? "bg-rose-500 text-white" : "bg-rose-100 text-rose-700"
-          }`}
-          onClick={handleCollapse}
-        >
-          {isCollapsed ? "Show All" : "Collapse"}
+          Both
         </button>
       </div>
     </div>

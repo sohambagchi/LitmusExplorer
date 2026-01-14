@@ -3,6 +3,7 @@ import EditorCanvas from "./components/EditorCanvas";
 import Sidebar from "./components/Sidebar";
 import { useStore } from "./store/useStore";
 import type { RelationEdge, TraceNode } from "./types";
+import { createBranchGroupCondition } from "./utils/branchConditionFactory";
 
 const LANE_HEIGHT = 120;
 const GRID_X = 80;
@@ -34,6 +35,7 @@ const seedNodes: TraceNode[] = [
       operation: {
         type: "BRANCH",
         text: "if r0",
+        branchCondition: createBranchGroupCondition(),
       },
     },
   },

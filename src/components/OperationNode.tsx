@@ -51,25 +51,67 @@ const OperationNode = ({ data, selected }: NodeProps<TraceNodeData>) => {
     () => new Map(memoryEnv.map((item) => [item.id, item])),
     [memoryEnv]
   );
-  const resolvedAddress = data.operation.addressId
-    ? formatMemoryLabel(memoryById.get(data.operation.addressId), memoryById)
-    : "";
-  const addressLabel = resolvedAddress || data.operation.address || "";
-  const resolvedValue = data.operation.valueId
-    ? formatMemoryLabel(memoryById.get(data.operation.valueId), memoryById)
-    : "";
-  const valueLabel =
-    resolvedValue ||
-    (data.operation.value !== undefined ? String(data.operation.value) : "");
   const label = useMemo(() => {
     const op = data.operation;
     const opLabel = opLabels[op.type];
-    const address = addressLabel ? ` ${addressLabel}` : "";
-    const value = valueLabel ? ` = ${valueLabel}` : "";
-    const order = op.memoryOrder ? ` (${orderShort[op.memoryOrder]})` : "";
+    const resolvedAddress = op.addressId
+      ? formatMemoryLabel(memoryById.get(op.addressId), memoryById)
+      : "";
+    const addressLabel = resolvedAddress || op.address || "";
+    const baseOrder = op.memoryOrder ? ` (${orderShort[op.memoryOrder]})` : "";
 
-    return op.text ?? `${opLabel}${address}${value}${order}`;
-  }, [addressLabel, data.operation, valueLabel]);
+    if (op.text) {
+      return op.text;
+    }
+
+    if (op.type === "FENCE") {
+      return `${opLabel}${baseOrder}`;
+    }
+
+    if (op.type === "LOAD") {
+      const address = addressLabel ? ` ${addressLabel}` : "";
+      return `${opLabel}${address}${baseOrder}`;
+    }
+
+    if (op.type === "STORE") {
+      const address = addressLabel ? ` ${addressLabel}` : "";
+      const resolvedValue = op.valueId
+        ? formatMemoryLabel(memoryById.get(op.valueId), memoryById)
+        : "";
+      const valueLabel =
+        resolvedValue ||
+        (op.value !== undefined ? String(op.value) : "");
+      const value = valueLabel ? ` = ${valueLabel}` : "";
+      return `${opLabel}${address}${value}${baseOrder}`;
+    }
+
+    if (op.type === "RMW") {
+      const address = addressLabel ? ` ${addressLabel}` : "";
+      const expected = op.expectedValueId
+        ? formatMemoryLabel(memoryById.get(op.expectedValueId), memoryById)
+        : "";
+      const desired = op.desiredValueId
+        ? formatMemoryLabel(memoryById.get(op.desiredValueId), memoryById)
+        : "";
+      const casValues =
+        expected || desired ? ` (${expected || "?"}→${desired || "?"})` : "";
+      const successOrder = op.successMemoryOrder
+        ? orderShort[op.successMemoryOrder]
+        : "";
+      const failureOrder = op.failureMemoryOrder
+        ? orderShort[op.failureMemoryOrder]
+        : "";
+      const casOrders =
+        successOrder || failureOrder
+          ? ` [${successOrder || "?"}/${failureOrder || "?"}]`
+          : "";
+
+      return `CAS${address}${casValues}${casOrders}`;
+    }
+
+    const address = addressLabel ? ` ${addressLabel}` : "";
+    return `${opLabel}${address}${baseOrder}`;
+  }, [data.operation, memoryById]);
 
   const colorClass = data.operation.memoryOrder
     ? orderColors[data.operation.memoryOrder]

@@ -29,6 +29,9 @@ import { useStore } from "../store/useStore";
 import BranchNode from "./BranchNode";
 import OperationNode from "./OperationNode";
 import RelationEdgeComponent from "./RelationEdge";
+import { createBranchGroupCondition } from "../utils/branchConditionFactory";
+import { evaluateBranchCondition } from "../utils/branchEvaluation";
+import ConfirmDialog from "./ConfirmDialog";
 
 const LANE_HEIGHT = 120;
 const LANE_LABEL_WIDTH = 64;
@@ -80,9 +83,13 @@ const getThreadsForLayout = (threads: string[], nodes: TraceNode[]) => {
 const LaneOverlay = ({
   threads,
   nextThreadId,
+  nodeCountsByThread,
+  onRequestDeleteThread,
 }: {
   threads: string[];
   nextThreadId: string;
+  nodeCountsByThread: Map<string, number>;
+  onRequestDeleteThread: (threadId: string) => void;
 }) => (
   <div className="pointer-events-none absolute inset-0 z-0">
     {threads.map((threadId, index) => (
@@ -97,8 +104,23 @@ const LaneOverlay = ({
           className="absolute inset-y-0 left-0 flex items-center justify-center border-r border-slate-200 bg-slate-100/85"
           style={{ width: LANE_LABEL_WIDTH }}
         >
-          <div className="rounded bg-slate-900 px-2 py-1 text-[10px] font-semibold text-white">
-            {threadId}
+          <div className="pointer-events-auto flex items-center gap-1 rounded bg-slate-900 px-2 py-1 text-[10px] font-semibold text-white">
+            <span>{threadId}</span>
+            <button
+              type="button"
+              className="rounded bg-white/10 px-1 py-0.5 text-[10px] font-semibold text-white hover:bg-white/20"
+              onMouseDown={(event) => {
+                event.stopPropagation();
+              }}
+              onClick={(event) => {
+                event.stopPropagation();
+                onRequestDeleteThread(threadId);
+              }}
+              title={`Delete ${threadId} (${nodeCountsByThread.get(threadId) ?? 0} nodes)`}
+              aria-label={`Delete ${threadId}`}
+            >
+              ✕
+            </button>
           </div>
         </div>
       </div>
@@ -128,11 +150,11 @@ const EditorCanvas = () => {
   const memoryEnv = useStore((state) => state.memoryEnv);
   const selectedMemoryIds = useStore((state) => state.selectedMemoryIds);
   const threads = useStore((state) => state.threads);
-  const activeBranch = useStore((state) => state.activeBranch);
   const setNodes = useStore((state) => state.setNodes);
   const onEdgesChange = useStore((state) => state.onEdgesChange);
   const setEdges = useStore((state) => state.setEdges);
   const addThread = useStore((state) => state.addThread);
+  const deleteThread = useStore((state) => state.deleteThread);
   const addMemoryVar = useStore((state) => state.addMemoryVar);
   const updateMemoryVar = useStore((state) => state.updateMemoryVar);
   const validateGraph = useStore((state) => state.validateGraph);
@@ -142,6 +164,10 @@ const EditorCanvas = () => {
   const reactFlowInstance = useRef<ReactFlowInstance | null>(null);
   const idCounter = useRef(1);
   const [isLocked, setIsLocked] = useState(false);
+  const [pendingThreadDelete, setPendingThreadDelete] = useState<{
+    threadId: string;
+    nodeCount: number;
+  } | null>(null);
 
   const nodeTypes = useMemo(
     () => ({ operation: OperationNode, branch: BranchNode }),
@@ -150,22 +176,94 @@ const EditorCanvas = () => {
   const edgeTypes = useMemo(() => ({ relation: RelationEdgeComponent }), []);
 
   const visibleNodes = useMemo(() => {
-    if (!activeBranch) {
-      return nodes;
+    const nodesById = new Map(nodes.map((node) => [node.id, node]));
+
+    const poOutgoing = new Map<string, string[]>();
+    for (const edge of edges) {
+      const relationType = edge.data?.relationType ?? "po";
+      if (relationType !== "po") {
+        continue;
+      }
+      const current = poOutgoing.get(edge.source) ?? [];
+      current.push(edge.target);
+      poOutgoing.set(edge.source, current);
     }
 
-    return nodes.filter((node) => {
-      if (!node.data.branchId) {
-        return true;
+    const followPo = (startIds: string[], bucket: Set<string>) => {
+      const queue = [...startIds];
+      while (queue.length > 0) {
+        const nextId = queue.shift();
+        if (!nextId || bucket.has(nextId) || !nodesById.has(nextId)) {
+          continue;
+        }
+        bucket.add(nextId);
+        const outgoing = poOutgoing.get(nextId) ?? [];
+        for (const targetId of outgoing) {
+          if (!bucket.has(targetId)) {
+            queue.push(targetId);
+          }
+        }
+      }
+    };
+
+    const hidden = new Set<string>();
+    const branchNodes = nodes.filter(
+      (node) => node.data.operation.type === "BRANCH"
+    );
+
+    for (const branchNode of branchNodes) {
+      if (branchNode.data.operation.branchShowBothFutures) {
+        continue;
+      }
+      const branchId = branchNode.id;
+      const condition = branchNode.data.operation.branchCondition;
+      if (!condition) {
+        continue;
       }
 
-      if (node.data.branchId !== activeBranch.branchId) {
-        return true;
+      const thenSet = new Set<string>();
+      const elseSet = new Set<string>();
+
+      for (const node of nodes) {
+        if (node.data.branchId !== branchId) {
+          continue;
+        }
+        if (node.data.branchPath === "then") {
+          thenSet.add(node.id);
+        } else if (node.data.branchPath === "else") {
+          elseSet.add(node.id);
+        }
       }
 
-      return node.data.branchPath === activeBranch.path;
-    });
-  }, [activeBranch, nodes]);
+      const thenStarts = edges
+        .filter((edge) => edge.source === branchId && edge.sourceHandle === "then")
+        .map((edge) => edge.target);
+      const elseStarts = edges
+        .filter((edge) => edge.source === branchId && edge.sourceHandle === "else")
+        .map((edge) => edge.target);
+      followPo(thenStarts, thenSet);
+      followPo(elseStarts, elseSet);
+
+      if (thenSet.size === 0 && elseSet.size === 0) {
+        continue;
+      }
+
+      const thenExclusive = new Set(
+        [...thenSet].filter((nodeId) => !elseSet.has(nodeId))
+      );
+      const elseExclusive = new Set(
+        [...elseSet].filter((nodeId) => !thenSet.has(nodeId))
+      );
+
+      const outcome = evaluateBranchCondition(condition, memoryEnv);
+      const toHide = outcome ? elseExclusive : thenExclusive;
+      for (const nodeId of toHide) {
+        hidden.add(nodeId);
+      }
+    }
+
+    return nodes.filter((node) => !hidden.has(node.id));
+  }, [edges, memoryEnv, nodes]);
 
   const visibleNodeIds = useMemo(
     () => new Set(visibleNodes.map((node) => node.id)),
@@ -193,6 +291,27 @@ const EditorCanvas = () => {
   const threadsForLayout = useMemo(
     () => getThreadsForLayout(threads, nodes),
     [nodes, threads]
+  );
+
+  const nodeCountsByThread = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const node of nodes) {
+      counts.set(node.data.threadId, (counts.get(node.data.threadId) ?? 0) + 1);
+    }
+    for (const threadId of threadsForLayout) {
+      if (!counts.has(threadId)) {
+        counts.set(threadId, 0);
+      }
+    }
+    return counts;
+  }, [nodes, threadsForLayout]);
+
+  const requestDeleteThread = useCallback(
+    (threadId: string) => {
+      const nodeCount = nodeCountsByThread.get(threadId) ?? 0;
+      setPendingThreadDelete({ threadId, nodeCount });
+    },
+    [nodeCountsByThread]
   );
 
   const nextThreadId = useMemo(() => {
@@ -432,6 +551,9 @@ const EditorCanvas = () => {
           sequenceIndex,
           operation: {
             type: operationType as TraceNode["data"]["operation"]["type"],
+            ...(operationType === "BRANCH"
+              ? { branchCondition: createBranchGroupCondition() }
+              : null),
           },
         },
       };
@@ -644,7 +766,12 @@ const EditorCanvas = () => {
             style={{ height: canvasHeight }}
             onWheelCapture={handleWheelPan}
           >
-            <LaneOverlay threads={threadsForLayout} nextThreadId={nextThreadId} />
+            <LaneOverlay
+              threads={threadsForLayout}
+              nextThreadId={nextThreadId}
+              nodeCountsByThread={nodeCountsByThread}
+              onRequestDeleteThread={requestDeleteThread}
+            />
             <ReactFlow
               nodes={visibleNodes}
               edges={edgesToRender}
@@ -682,6 +809,32 @@ const EditorCanvas = () => {
                 variant={BackgroundVariant.Lines}
               />
             </ReactFlow>
+            <ConfirmDialog
+              open={pendingThreadDelete !== null}
+              title={
+                pendingThreadDelete
+                  ? `Delete ${pendingThreadDelete.threadId}?`
+                  : "Delete thread?"
+              }
+              description={
+                pendingThreadDelete
+                  ? pendingThreadDelete.nodeCount > 0
+                    ? `This will delete ${pendingThreadDelete.nodeCount} node(s) and all connected edges.`
+                    : "This thread is empty."
+                  : undefined
+              }
+              confirmLabel="Delete"
+              cancelLabel="Cancel"
+              tone="danger"
+              onCancel={() => setPendingThreadDelete(null)}
+              onConfirm={() => {
+                if (!pendingThreadDelete) {
+                  return;
+                }
+                deleteThread(pendingThreadDelete.threadId);
+                setPendingThreadDelete(null);
+              }}
+            />
           </div>
         </div>
         <div className="flex items-center justify-between border-t border-slate-200 bg-white px-3 py-2">

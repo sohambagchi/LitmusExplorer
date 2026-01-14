@@ -1,5 +1,13 @@
-import { useCallback, useMemo, useRef, useState, type DragEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+} from "react";
 import type {
+  BranchGroupCondition,
   MemoryOrder,
   MemoryType,
   MemoryVariable,
@@ -9,6 +17,8 @@ import type {
 import { useStore } from "../store/useStore";
 import { parseSessionSnapshot } from "../session/parseSessionSnapshot";
 import { checkEdgeConstraints } from "../utils/edgeConstraints";
+import BranchConditionEditor from "./BranchConditionEditor";
+import { evaluateBranchCondition } from "../utils/branchEvaluation";
 
 type ToolboxItem = {
   label: string;
@@ -46,6 +56,20 @@ const formatMemoryLabel = (
 };
 
 const Sidebar = () => {
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    if (typeof window === "undefined") {
+      return 520;
+    }
+    const stored = window.localStorage.getItem("litmus.sidebarWidth");
+    const parsed = stored ? Number(stored) : NaN;
+    return Number.isFinite(parsed) ? parsed : 520;
+  });
+  const resizeState = useRef<{
+    startX: number;
+    startWidth: number;
+    pointerId: number;
+  } | null>(null);
+
   const setNodes = useStore((state) => state.setNodes);
   const nodes = useStore((state) => state.nodes);
   const edges = useStore((state) => state.edges);
@@ -53,6 +77,7 @@ const Sidebar = () => {
   const threads = useStore((state) => state.threads);
   const memoryEnv = useStore((state) => state.memoryEnv);
   const activeBranch = useStore((state) => state.activeBranch);
+  const deleteNode = useStore((state) => state.deleteNode);
   const resetSession = useStore((state) => state.resetSession);
   const importSession = useStore((state) => state.importSession);
   const validateGraph = useStore((state) => state.validateGraph);
@@ -79,9 +104,14 @@ const Sidebar = () => {
   const updateSelectedOperation = (updates: {
     addressId?: string;
     valueId?: string;
+    expectedValueId?: string;
+    desiredValueId?: string;
     address?: string;
     value?: string | number;
     memoryOrder?: MemoryOrder;
+    successMemoryOrder?: MemoryOrder;
+    failureMemoryOrder?: MemoryOrder;
+    branchCondition?: BranchGroupCondition;
   }) => {
     if (!selectedNode) {
       return;
@@ -93,15 +123,16 @@ const Sidebar = () => {
           return node;
         }
 
-        const normalizedUpdates = {
-          ...updates,
-          ...(Object.prototype.hasOwnProperty.call(updates, "addressId")
-            ? { address: undefined }
-            : null),
-          ...(Object.prototype.hasOwnProperty.call(updates, "valueId")
-            ? { value: undefined }
-            : null),
-        };
+        const normalizedUpdates: typeof updates = { ...updates };
+        if (Object.prototype.hasOwnProperty.call(updates, "addressId")) {
+          normalizedUpdates.address = undefined;
+        }
+        if (Object.prototype.hasOwnProperty.call(updates, "valueId")) {
+          normalizedUpdates.value = undefined;
+        }
+        if (Object.prototype.hasOwnProperty.call(updates, "value")) {
+          normalizedUpdates.valueId = undefined;
+        }
 
         return {
           ...node,
@@ -147,6 +178,13 @@ const Sidebar = () => {
     }
 
     setEdges((current) => current.filter((edge) => edge.id !== selectedEdge.id));
+  };
+
+  const deleteSelectedNode = () => {
+    if (!selectedNode) {
+      return;
+    }
+    deleteNode(selectedNode.id);
   };
 
   const handleMemoryDragStart = (
@@ -220,10 +258,8 @@ const Sidebar = () => {
     const memoryById = new Map(memoryEnv.map((item) => [item.id, item]));
 
     return memoryEnv
-      .map((item) => ({
-        value: item.id,
-        label: formatMemoryLabel(item, memoryById),
-      }))
+      .filter((item) => item.type !== "struct")
+      .map((item) => ({ value: item.id, label: formatMemoryLabel(item, memoryById) }))
       .filter((option) => option.label);
   }, [memoryEnv]);
 
@@ -246,8 +282,75 @@ const Sidebar = () => {
     return { sourceNode, targetNode, relationType, constraint };
   }, [memoryEnv, nodes, selectedEdge]);
 
+  const selectedBranchOutcome = useMemo(() => {
+    if (!selectedNode || selectedNode.data.operation.type !== "BRANCH") {
+      return null;
+    }
+    const condition = selectedNode.data.operation.branchCondition;
+    if (!condition) {
+      return null;
+    }
+    return evaluateBranchCondition(condition, memoryEnv);
+  }, [memoryEnv, selectedNode]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem("litmus.sidebarWidth", String(sidebarWidth));
+  }, [sidebarWidth]);
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      const state = resizeState.current;
+      if (!state || event.pointerId !== state.pointerId) {
+        return;
+      }
+
+      const minWidth = 320;
+      const maxWidth = Math.min(900, Math.max(minWidth, window.innerWidth * 0.75));
+      const delta = event.clientX - state.startX;
+      setSidebarWidth(Math.max(minWidth, Math.min(maxWidth, state.startWidth + delta)));
+    };
+
+    const handlePointerUp = (event: PointerEvent) => {
+      const state = resizeState.current;
+      if (!state || event.pointerId !== state.pointerId) {
+        return;
+      }
+      resizeState.current = null;
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, []);
+
   return (
-    <aside className="flex h-full w-72 flex-col gap-6 border-r border-slate-200 bg-white p-4 text-sm text-slate-900">
+    <aside
+      className="relative flex h-full flex-none flex-col gap-6 overflow-y-auto border-r border-slate-200 bg-white p-4 text-sm text-slate-900"
+      style={{ width: sidebarWidth }}
+    >
+      <div
+        className="absolute inset-y-0 -right-1 z-20 w-2 cursor-col-resize"
+        role="separator"
+        aria-label="Resize sidebar"
+        onPointerDown={(event) => {
+          event.preventDefault();
+          resizeState.current = {
+            startX: event.clientX,
+            startWidth: sidebarWidth,
+            pointerId: event.pointerId,
+          };
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+      >
+        <div className="absolute inset-y-0 right-0 w-px bg-slate-200" />
+        <div className="absolute right-0 top-1/2 h-10 w-1 -translate-y-1/2 rounded bg-slate-200 opacity-0 transition-opacity hover:opacity-100" />
+      </div>
       <section className="space-y-3">
         <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
           Session
@@ -392,56 +495,170 @@ const Sidebar = () => {
             <div className="text-xs text-slate-500">
               Node {selectedNode.id}
             </div>
-            <select
-              className="w-full rounded border border-slate-300 px-2 py-1"
-              value={selectedNode.data.operation.addressId ?? ""}
-              onChange={(event) =>
-                updateSelectedOperation({
-                  addressId: event.target.value || undefined,
-                })
-              }
+            {selectedNode.data.operation.type === "BRANCH" ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-semibold text-slate-700">
+                    Branch Outcome
+                  </div>
+                  <div
+                    className={`rounded px-2 py-0.5 text-[10px] font-semibold ${
+                      selectedBranchOutcome ? "bg-emerald-200" : "bg-rose-200"
+                    }`}
+                  >
+                    {(selectedBranchOutcome ?? false) ? "True" : "False"}
+                  </div>
+                </div>
+                <BranchConditionEditor
+                  memoryOptions={memoryOptions}
+                  value={selectedNode.data.operation.branchCondition}
+                  onChange={(nextCondition) =>
+                    updateSelectedOperation({ branchCondition: nextCondition })
+                  }
+                />
+              </div>
+            ) : (
+              <>
+                {selectedNode.data.operation.type === "LOAD" ||
+                selectedNode.data.operation.type === "STORE" ||
+                selectedNode.data.operation.type === "RMW" ? (
+                  <select
+                    className="w-full rounded border border-slate-300 px-2 py-1"
+                    value={selectedNode.data.operation.addressId ?? ""}
+                    onChange={(event) =>
+                      updateSelectedOperation({
+                        addressId: event.target.value || undefined,
+                      })
+                    }
+                  >
+                    <option value="">Variable</option>
+                    {memoryOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+
+                {selectedNode.data.operation.type === "STORE" ? (
+                  <input
+                    className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
+                    placeholder="Value"
+                    value={
+                      selectedNode.data.operation.value !== undefined
+                        ? String(selectedNode.data.operation.value)
+                        : ""
+                    }
+                    onChange={(event) =>
+                      updateSelectedOperation({ value: event.target.value })
+                    }
+                  />
+                ) : null}
+
+                {selectedNode.data.operation.type === "RMW" ? (
+                  <>
+                    <select
+                      className="w-full rounded border border-slate-300 px-2 py-1"
+                      value={selectedNode.data.operation.expectedValueId ?? ""}
+                      onChange={(event) =>
+                        updateSelectedOperation({
+                          expectedValueId: event.target.value || undefined,
+                        })
+                      }
+                    >
+                      <option value="">Expected Value</option>
+                      {memoryOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      className="w-full rounded border border-slate-300 px-2 py-1"
+                      value={selectedNode.data.operation.desiredValueId ?? ""}
+                      onChange={(event) =>
+                        updateSelectedOperation({
+                          desiredValueId: event.target.value || undefined,
+                        })
+                      }
+                    >
+                      <option value="">Desired Value</option>
+                      {memoryOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      className="w-full rounded border border-slate-300 px-2 py-1"
+                      value={selectedNode.data.operation.successMemoryOrder ?? ""}
+                      onChange={(event) =>
+                        updateSelectedOperation({
+                          successMemoryOrder: event.target.value
+                            ? (event.target.value as MemoryOrder)
+                            : undefined,
+                        })
+                      }
+                    >
+                      <option value="">Success Memory Order</option>
+                      {MEMORY_ORDERS.map((order) => (
+                        <option key={order} value={order}>
+                          {order}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      className="w-full rounded border border-slate-300 px-2 py-1"
+                      value={selectedNode.data.operation.failureMemoryOrder ?? ""}
+                      onChange={(event) =>
+                        updateSelectedOperation({
+                          failureMemoryOrder: event.target.value
+                            ? (event.target.value as MemoryOrder)
+                            : undefined,
+                        })
+                      }
+                    >
+                      <option value="">Failure Memory Order</option>
+                      {MEMORY_ORDERS.map((order) => (
+                        <option key={order} value={order}>
+                          {order}
+                        </option>
+                      ))}
+                    </select>
+                  </>
+                ) : null}
+
+                {selectedNode.data.operation.type === "LOAD" ||
+                selectedNode.data.operation.type === "STORE" ||
+                selectedNode.data.operation.type === "FENCE" ? (
+                  <select
+                    className="w-full rounded border border-slate-300 px-2 py-1"
+                    value={selectedNode.data.operation.memoryOrder ?? ""}
+                    onChange={(event) =>
+                      updateSelectedOperation({
+                        memoryOrder: event.target.value
+                          ? (event.target.value as MemoryOrder)
+                          : undefined,
+                      })
+                    }
+                  >
+                    <option value="">Memory Order</option>
+                    {MEMORY_ORDERS.map((order) => (
+                      <option key={order} value={order}>
+                        {order}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+              </>
+            )}
+            <button
+              type="button"
+              className="w-full rounded bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white"
+              onClick={deleteSelectedNode}
             >
-              <option value="">Address</option>
-              {memoryOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <select
-              className="w-full rounded border border-slate-300 px-2 py-1"
-              value={selectedNode.data.operation.valueId ?? ""}
-              onChange={(event) =>
-                updateSelectedOperation({
-                  valueId: event.target.value || undefined,
-                })
-              }
-            >
-              <option value="">Value</option>
-              {memoryOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <select
-              className="w-full rounded border border-slate-300 px-2 py-1"
-              value={selectedNode.data.operation.memoryOrder ?? ""}
-              onChange={(event) =>
-                updateSelectedOperation({
-                  memoryOrder: event.target.value
-                    ? (event.target.value as MemoryOrder)
-                    : undefined,
-                })
-              }
-            >
-              <option value="">Memory Order</option>
-              {MEMORY_ORDERS.map((order) => (
-                <option key={order} value={order}>
-                  {order}
-                </option>
-              ))}
-            </select>
+              Delete Node
+            </button>
           </div>
         ) : (
           <div className="text-xs text-slate-500">

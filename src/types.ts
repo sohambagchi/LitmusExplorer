@@ -2,6 +2,9 @@ import type { Edge, Node } from "reactflow";
 
 export type MemoryType = "int" | "array" | "struct";
 export type MemoryScope = "constants" | "locals" | "shared";
+export type ComparisonOp = "==" | "<" | ">" | "<=" | ">=" | "!=";
+export type LogicalOp = "&&" | "||";
+export type RuleEvaluation = "natural" | "true" | "false";
 
 type MemoryVariableBase = {
   id: string;
@@ -38,13 +41,37 @@ export type ActiveBranch = {
   path: BranchPath;
 };
 
+export type BranchRuleCondition = {
+  kind: "rule";
+  id: string;
+  lhsId?: string;
+  rhsId?: string;
+  op: ComparisonOp;
+  evaluation: RuleEvaluation;
+};
+
+export type BranchGroupCondition = {
+  kind: "group";
+  id: string;
+  items: BranchCondition[];
+  operators: LogicalOp[];
+};
+
+export type BranchCondition = BranchRuleCondition | BranchGroupCondition;
+
 export type Operation = {
   type: OperationType;
   addressId?: string;
   valueId?: string;
+  expectedValueId?: string;
+  desiredValueId?: string;
   address?: string;
   value?: string | number;
   memoryOrder?: MemoryOrder;
+  successMemoryOrder?: MemoryOrder;
+  failureMemoryOrder?: MemoryOrder;
+  branchCondition?: BranchGroupCondition;
+  branchShowBothFutures?: boolean;
   text?: string;
 };
 

@@ -152,7 +152,7 @@ const parseEdges = (value: unknown) => {
     const relationType =
       typeof data.relationType === "string" && allowedRelationTypes.has(data.relationType)
         ? (data.relationType as RelationType)
-        : ("rf" as const);
+        : ("po" as const);
 
     return {
       ...(item as RelationEdge),

@@ -8,11 +8,11 @@ import {
 import type {
   ActiveBranch,
   MemoryVariable,
-  RelationType,
   RelationEdge,
   SessionSnapshot,
   TraceNode,
 } from "../types";
+import { checkEdgeConstraints } from "../utils/edgeConstraints";
 
 type NodesUpdater = TraceNode[] | ((nodes: TraceNode[]) => TraceNode[]);
 type EdgesUpdater = RelationEdge[] | ((edges: RelationEdge[]) => RelationEdge[]);
@@ -22,7 +22,6 @@ type StoreState = {
   edges: RelationEdge[];
   memoryEnv: MemoryVariable[];
   selectedMemoryIds: string[];
-  relationTypeDraft: RelationType;
   threads: string[];
   activeBranch: ActiveBranch | null;
   setNodes: (updater: NodesUpdater) => void;
@@ -34,7 +33,6 @@ type StoreState = {
   toggleMemorySelection: (id: string) => void;
   clearMemorySelection: () => void;
   groupSelectedIntoStruct: () => void;
-  setRelationTypeDraft: (relationType: RelationType) => void;
   setThreads: (threads: string[]) => void;
   setActiveBranch: (branch: ActiveBranch | null) => void;
   validateGraph: () => void;
@@ -71,7 +69,6 @@ export const useStore = create<StoreState>()((set, get) => ({
   edges: [],
   memoryEnv: createDefaultMemoryEnv(),
   selectedMemoryIds: [],
-  relationTypeDraft: "rf",
   threads: ["T1"],
   activeBranch: null,
   setNodes: (updater) =>
@@ -139,29 +136,48 @@ export const useStore = create<StoreState>()((set, get) => ({
       selectedMemoryIds: [],
     });
   },
-  setRelationTypeDraft: (relationType) => set({ relationTypeDraft: relationType }),
   setThreads: (threads) => set({ threads }),
   setActiveBranch: (branch) => set({ activeBranch: branch }),
   validateGraph: () => {
     // Flag read-from edges that point backward within a thread's sequence.
     const nodesById = new Map(get().nodes.map((node) => [node.id, node]));
+    const memoryEnv = get().memoryEnv;
     const updatedEdges = get().edges.map((edge) => {
-      if (edge.data?.relationType !== "rf") {
-        return edge;
-      }
+      const relationType = edge.data?.relationType ?? "po";
 
       const source = nodesById.get(edge.source);
       const target = nodesById.get(edge.target);
       if (!source || !target) {
-        return { ...edge, data: { ...edge.data, invalid: false } };
+        return {
+          ...edge,
+          data: { ...(edge.data ?? { relationType }), relationType, invalid: false },
+        };
       }
 
-      const isStore = source.data.operation.type === "STORE";
-      const isLoad = target.data.operation.type === "LOAD";
-      const invalid =
-        isStore && isLoad && source.data.sequenceIndex > target.data.sequenceIndex;
+      const constraint = checkEdgeConstraints({
+        relationType,
+        sourceNode: source,
+        targetNode: target,
+        memoryEnv,
+      });
 
-      return { ...edge, data: { ...edge.data, invalid } };
+      const invalidByConstraint = !constraint.allowed;
+
+      const invalidByRfOrder =
+        relationType === "rf" &&
+        source.data.threadId === target.data.threadId &&
+        source.data.operation.type === "STORE" &&
+        target.data.operation.type === "LOAD" &&
+        source.data.sequenceIndex > target.data.sequenceIndex;
+
+      return {
+        ...edge,
+        data: {
+          ...(edge.data ?? { relationType }),
+          relationType,
+          invalid: invalidByConstraint || invalidByRfOrder,
+        },
+      };
     });
 
     set({ edges: updatedEdges });
@@ -172,18 +188,15 @@ export const useStore = create<StoreState>()((set, get) => ({
       edges: [],
       memoryEnv: createDefaultMemoryEnv(),
       selectedMemoryIds: [],
-      relationTypeDraft: "rf",
       threads: ["T1"],
       activeBranch: null,
     }),
   importSession: (snapshot) => {
-    const relationTypeDraft = get().relationTypeDraft;
     set({
       nodes: snapshot.nodes.map((node) => ({ ...node, selected: false })),
       edges: snapshot.edges.map((edge) => ({ ...edge, selected: false })),
       memoryEnv: flattenMemorySnapshot(snapshot),
       selectedMemoryIds: [],
-      relationTypeDraft,
       threads: snapshot.threads.length > 0 ? snapshot.threads : ["T1"],
       activeBranch: snapshot.activeBranch,
     });

@@ -8,6 +8,7 @@ import type {
 } from "../types";
 import { useStore } from "../store/useStore";
 import { parseSessionSnapshot } from "../session/parseSessionSnapshot";
+import { checkEdgeConstraints } from "../utils/edgeConstraints";
 
 type ToolboxItem = {
   label: string;
@@ -48,14 +49,14 @@ const Sidebar = () => {
   const setNodes = useStore((state) => state.setNodes);
   const nodes = useStore((state) => state.nodes);
   const edges = useStore((state) => state.edges);
+  const setEdges = useStore((state) => state.setEdges);
   const threads = useStore((state) => state.threads);
   const memoryEnv = useStore((state) => state.memoryEnv);
   const activeBranch = useStore((state) => state.activeBranch);
   const resetSession = useStore((state) => state.resetSession);
   const importSession = useStore((state) => state.importSession);
+  const validateGraph = useStore((state) => state.validateGraph);
   const selectedMemoryIds = useStore((state) => state.selectedMemoryIds);
-  const relationTypeDraft = useStore((state) => state.relationTypeDraft);
-  const setRelationTypeDraft = useStore((state) => state.setRelationTypeDraft);
   const groupSelectedIntoStruct = useStore(
     (state) => state.groupSelectedIntoStruct
   );
@@ -66,6 +67,8 @@ const Sidebar = () => {
     () => nodes.find((node) => node.selected),
     [nodes]
   );
+
+  const selectedEdge = useMemo(() => edges.find((edge) => edge.selected), [edges]);
 
   const onDragStart = (event: DragEvent<HTMLDivElement>, item: ToolboxItem) => {
     event.dataTransfer.setData("application/reactflow", item.nodeType);
@@ -112,6 +115,38 @@ const Sidebar = () => {
         };
       })
     );
+    validateGraph();
+  };
+
+  const updateSelectedEdge = (updates: { relationType?: RelationType }) => {
+    if (!selectedEdge) {
+      return;
+    }
+
+    setEdges((current) =>
+      current.map((edge) => {
+        if (edge.id !== selectedEdge.id) {
+          return edge;
+        }
+
+        return {
+          ...edge,
+          data: {
+            ...(edge.data ?? { relationType: "po" }),
+            ...updates,
+          },
+        };
+      })
+    );
+    validateGraph();
+  };
+
+  const deleteSelectedEdge = () => {
+    if (!selectedEdge) {
+      return;
+    }
+
+    setEdges((current) => current.filter((edge) => edge.id !== selectedEdge.id));
   };
 
   const handleMemoryDragStart = (
@@ -191,6 +226,25 @@ const Sidebar = () => {
       }))
       .filter((option) => option.label);
   }, [memoryEnv]);
+
+  const selectedEdgeContext = useMemo(() => {
+    if (!selectedEdge) {
+      return null;
+    }
+
+    const nodesById = new Map(nodes.map((node) => [node.id, node]));
+    const sourceNode = nodesById.get(selectedEdge.source);
+    const targetNode = nodesById.get(selectedEdge.target);
+    const relationType = selectedEdge.data?.relationType ?? "po";
+    const constraint = checkEdgeConstraints({
+      relationType,
+      sourceNode,
+      targetNode,
+      memoryEnv,
+    });
+
+    return { sourceNode, targetNode, relationType, constraint };
+  }, [memoryEnv, nodes, selectedEdge]);
 
   return (
     <aside className="flex h-full w-72 flex-col gap-6 border-r border-slate-200 bg-white p-4 text-sm text-slate-900">
@@ -280,27 +334,6 @@ const Sidebar = () => {
 
       <section className="space-y-3">
         <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Relations
-        </h2>
-        <select
-          className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
-          value={relationTypeDraft}
-          onChange={(event) =>
-            setRelationTypeDraft(event.target.value as RelationType)
-          }
-        >
-          <option value="rf">rf (read-from)</option>
-          <option value="co">co (coherence)</option>
-          <option value="fr">fr (from-read)</option>
-          <option value="po">po (program order)</option>
-        </select>
-        <div className="text-xs text-slate-500">
-          New edges use the selected relation type.
-        </div>
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
           Toolbox
         </h2>
         <div className="grid grid-cols-2 gap-2">
@@ -321,7 +354,40 @@ const Sidebar = () => {
         <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
           Properties
         </h2>
-        {selectedNode ? (
+        {selectedEdge && selectedEdgeContext ? (
+          <div className="space-y-2">
+            <div className="text-xs text-slate-500">Edge {selectedEdge.id}</div>
+            <div className="text-xs text-slate-500">
+              {selectedEdge.source} → {selectedEdge.target}
+            </div>
+            <select
+              className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
+              value={selectedEdgeContext.relationType}
+              onChange={(event) =>
+                updateSelectedEdge({
+                  relationType: event.target.value as RelationType,
+                })
+              }
+            >
+              <option value="rf">rf (read-from)</option>
+              <option value="co">co (coherence)</option>
+              <option value="fr">fr (from-read)</option>
+              <option value="po">po (program order)</option>
+            </select>
+            <button
+              type="button"
+              className="w-full rounded bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white"
+              onClick={deleteSelectedEdge}
+            >
+              Delete Edge
+            </button>
+            {!selectedEdgeContext.constraint.allowed ? (
+              <div className="rounded border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700">
+                {selectedEdgeContext.constraint.reason}
+              </div>
+            ) : null}
+          </div>
+        ) : selectedNode ? (
           <div className="space-y-2">
             <div className="text-xs text-slate-500">
               Node {selectedNode.id}

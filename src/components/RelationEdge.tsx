@@ -44,12 +44,13 @@ const RelationEdge = ({
   sourceY,
   targetX,
   targetY,
+  selected,
   markerEnd,
   data,
   style,
 }: EdgeProps<RelationEdgeData>) => {
   const invalid = data?.invalid ?? false;
-  const relationType = data?.relationType ?? "rf";
+  const relationType = data?.relationType ?? "po";
   const [straightPath] = getStraightPath({
     sourceX,
     sourceY,
@@ -61,16 +62,19 @@ const RelationEdge = ({
     : straightPath;
 
   const stroke = (style?.stroke as string) ?? relationColors[relationType];
+  const isSelected = selected ?? false;
 
   return (
     <BaseEdge
       id={id}
       path={edgePath}
       markerEnd={markerEnd}
+      interactionWidth={24}
       style={{
         ...style,
         stroke: invalid ? "#ef4444" : stroke,
-        strokeWidth: invalid ? 2.5 : style?.strokeWidth ?? 1.75,
+        strokeWidth: invalid ? 2.5 : isSelected ? 2.75 : style?.strokeWidth ?? 1.75,
+        strokeDasharray: isSelected ? "5 4" : style?.strokeDasharray,
       }}
     />
   );

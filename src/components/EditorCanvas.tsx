@@ -57,7 +57,6 @@ const EditorCanvas = () => {
   const edges = useStore((state) => state.edges);
   const memoryEnv = useStore((state) => state.memoryEnv);
   const selectedMemoryIds = useStore((state) => state.selectedMemoryIds);
-  const relationTypeDraft = useStore((state) => state.relationTypeDraft);
   const threads = useStore((state) => state.threads);
   const activeBranch = useStore((state) => state.activeBranch);
   const setNodes = useStore((state) => state.setNodes);
@@ -66,6 +65,7 @@ const EditorCanvas = () => {
   const setEdges = useStore((state) => state.setEdges);
   const addMemoryVar = useStore((state) => state.addMemoryVar);
   const updateMemoryVar = useStore((state) => state.updateMemoryVar);
+  const validateGraph = useStore((state) => state.validateGraph);
   const toggleMemorySelection = useStore(
     (state) => state.toggleMemorySelection
   );
@@ -106,7 +106,7 @@ const EditorCanvas = () => {
       edges.map((edge) => ({
         ...edge,
         type: edge.type ?? "relation",
-        data: { relationType: "rf", ...(edge.data ?? {}) },
+        data: { relationType: "po", ...(edge.data ?? {}) },
       })),
     [edges]
   );
@@ -288,6 +288,7 @@ const EditorCanvas = () => {
       if (!connection.source || !connection.target) {
         return;
       }
+
       const edgeId = `edge-${Date.now()}-${Math.random().toString(16).slice(2)}`;
       setEdges((current) =>
         addEdge(
@@ -295,13 +296,14 @@ const EditorCanvas = () => {
             ...connection,
             id: edgeId,
             type: "relation",
-            data: { relationType: relationTypeDraft },
+            data: { relationType: "po" },
           },
           current
         )
       );
+      validateGraph();
     },
-    [relationTypeDraft, setEdges]
+    [setEdges, validateGraph]
   );
 
   const renderMemoryAtom = (item: MemoryVariable, nested: boolean) => {
@@ -457,6 +459,7 @@ const EditorCanvas = () => {
           panOnScrollMode={PanOnScrollMode.Horizontal}
           panOnDrag={false}
           zoomOnScroll={false}
+          deleteKeyCode={["Backspace", "Delete"]}
           snapToGrid
           snapGrid={[GRID_X, GRID_Y]}
           onNodesChange={onNodesChange}

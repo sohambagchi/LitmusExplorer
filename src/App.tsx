@@ -108,7 +108,7 @@ const seedNodes: TraceNode[] = [
       sequenceIndex: 3,
       operation: {
         type: "STORE",
-        address: "y",
+        address: "x",
         value: "1",
         memoryOrder: "Release",
       },

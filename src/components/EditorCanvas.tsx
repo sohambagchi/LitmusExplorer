@@ -10,6 +10,7 @@ import ReactFlow, {
   ConnectionLineType,
   Controls,
   MiniMap,
+  PanOnScrollMode,
   type Connection,
   type ReactFlowInstance,
 } from "reactflow";
@@ -418,7 +419,7 @@ const EditorCanvas = () => {
           edgeTypes={edgeTypes}
           connectionLineType={ConnectionLineType.Straight}
           panOnScroll
-          panOnScrollMode="horizontal"
+          panOnScrollMode={PanOnScrollMode.Horizontal}
           panOnDrag={false}
           zoomOnScroll={false}
           snapToGrid

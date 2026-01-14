@@ -1,0 +1,67 @@
+{
+  "memory": {
+    "constants": [],
+    "locals": [],
+    "shared": [
+      { "id": "mem-x", "name": "x", "type": "int", "value": "0" },
+      { "id": "mem-y", "name": "y", "type": "int", "value": "0" },
+      { "id": "mem-s1", "name": "S", "type": "struct" },
+      { "id": "mem-s1-a", "name": "a", "type": "int", "value": "0", "parentId": "mem-s1" },
+      { "id": "mem-s1-b", "name": "b", "type": "int", "value": "0", "parentId": "mem-s1" }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "operation",
+      "position": { "x": 80, "y": 30 },
+      "data": {
+        "threadId": "T1",
+        "sequenceIndex": 1,
+        "operation": { "type": "STORE", "addressId": "mem-x", "value": "1" }
+      }
+    },
+    {
+      "id": "n2",
+      "type": "operation",
+      "position": { "x": 160, "y": 30 },
+      "data": {
+        "threadId": "T1",
+        "sequenceIndex": 2,
+        "operation": { "type": "FENCE", "memoryOrder": "SC" }
+      }
+    },
+    {
+      "id": "n3",
+      "type": "operation",
+      "position": { "x": 80, "y": 150 },
+      "data": {
+        "threadId": "T2",
+        "sequenceIndex": 1,
+        "operation": { "type": "LOAD", "addressId": "mem-x", "memoryOrder": "Acquire" }
+      }
+    },
+    {
+      "id": "n4",
+      "type": "operation",
+      "position": { "x": 160, "y": 150 },
+      "data": {
+        "threadId": "T2",
+        "sequenceIndex": 2,
+        "operation": { "type": "STORE", "addressId": "mem-s1-a", "value": "7" }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "type": "relation",
+      "source": "n1",
+      "target": "n3",
+      "data": { "relationType": "rf" }
+    }
+  ],
+  "threads": ["T1", "T2"],
+  "activeBranch": null,
+  "exportedAt": "2026-01-01T00:00:00.000Z"
+}

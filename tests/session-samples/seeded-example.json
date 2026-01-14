@@ -1,0 +1,117 @@
+{
+  "memory": {
+    "constants": [],
+    "locals": [],
+    "shared": []
+  },
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "operation",
+      "position": { "x": 80, "y": 30 },
+      "data": {
+        "threadId": "T1",
+        "sequenceIndex": 1,
+        "operation": { "type": "LOAD", "address": "x", "memoryOrder": "Acquire" }
+      }
+    },
+    {
+      "id": "n2",
+      "type": "branch",
+      "position": { "x": 160, "y": 30 },
+      "data": {
+        "threadId": "T1",
+        "sequenceIndex": 2,
+        "operation": { "type": "BRANCH", "text": "if r0" }
+      }
+    },
+    {
+      "id": "n3",
+      "type": "operation",
+      "position": { "x": 240, "y": 30 },
+      "data": {
+        "threadId": "T1",
+        "sequenceIndex": 3,
+        "branchId": "n2",
+        "branchPath": "then",
+        "operation": {
+          "type": "STORE",
+          "address": "x",
+          "value": "1",
+          "memoryOrder": "Release"
+        }
+      }
+    },
+    {
+      "id": "n4",
+      "type": "operation",
+      "position": { "x": 320, "y": 30 },
+      "data": {
+        "threadId": "T1",
+        "sequenceIndex": 4,
+        "branchId": "n2",
+        "branchPath": "else",
+        "operation": {
+          "type": "STORE",
+          "address": "x",
+          "value": "2",
+          "memoryOrder": "Release"
+        }
+      }
+    },
+    {
+      "id": "n5",
+      "type": "operation",
+      "position": { "x": 80, "y": 150 },
+      "data": {
+        "threadId": "T2",
+        "sequenceIndex": 1,
+        "operation": { "type": "LOAD", "address": "x", "memoryOrder": "Relaxed" }
+      }
+    },
+    {
+      "id": "n6",
+      "type": "operation",
+      "position": { "x": 160, "y": 150 },
+      "data": {
+        "threadId": "T2",
+        "sequenceIndex": 2,
+        "operation": { "type": "FENCE", "memoryOrder": "SC" }
+      }
+    },
+    {
+      "id": "n7",
+      "type": "operation",
+      "position": { "x": 240, "y": 150 },
+      "data": {
+        "threadId": "T2",
+        "sequenceIndex": 3,
+        "operation": {
+          "type": "STORE",
+          "address": "y",
+          "value": "1",
+          "memoryOrder": "Release"
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "type": "relation",
+      "source": "n3",
+      "target": "n5",
+      "data": { "relationType": "rf" }
+    },
+    {
+      "id": "e2",
+      "type": "relation",
+      "source": "n7",
+      "target": "n1",
+      "data": { "relationType": "rf" }
+    }
+  ],
+  "threads": ["T1", "T2"],
+  "activeBranch": null,
+  "exportedAt": "2026-01-01T00:00:00.000Z"
+}

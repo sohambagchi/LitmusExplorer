@@ -10,6 +10,7 @@ import type {
   MemoryVariable,
   RelationType,
   RelationEdge,
+  SessionSnapshot,
   TraceNode,
 } from "../types";
 
@@ -38,10 +39,17 @@ type StoreState = {
   setActiveBranch: (branch: ActiveBranch | null) => void;
   validateGraph: () => void;
   resetSession: () => void;
+  importSession: (snapshot: SessionSnapshot) => void;
 };
 
 const applyUpdater = <T,>(current: T, updater: T | ((value: T) => T)) =>
   typeof updater === "function" ? (updater as (value: T) => T)(current) : updater;
+
+const flattenMemorySnapshot = (snapshot: SessionSnapshot) => [
+  ...snapshot.memory.constants,
+  ...snapshot.memory.locals,
+  ...snapshot.memory.shared,
+];
 
 export const useStore = create<StoreState>()((set, get) => ({
   nodes: [],
@@ -153,4 +161,16 @@ export const useStore = create<StoreState>()((set, get) => ({
       threads: ["T1"],
       activeBranch: null,
     }),
+  importSession: (snapshot) => {
+    const relationTypeDraft = get().relationTypeDraft;
+    set({
+      nodes: snapshot.nodes.map((node) => ({ ...node, selected: false })),
+      edges: snapshot.edges.map((edge) => ({ ...edge, selected: false })),
+      memoryEnv: flattenMemorySnapshot(snapshot),
+      selectedMemoryIds: [],
+      relationTypeDraft,
+      threads: snapshot.threads.length > 0 ? snapshot.threads : ["T1"],
+      activeBranch: snapshot.activeBranch,
+    });
+  },
 }));

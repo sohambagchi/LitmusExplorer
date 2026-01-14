@@ -1,0 +1,76 @@
+{
+  "memory": {
+    "constants": [],
+    "locals": [],
+    "shared": [
+      { "id": "mem-x", "name": "X", "type": "int", "value": "0" },
+      { "id": "mem-y", "name": "Y", "type": "int", "value": "0" }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "t0-n1",
+      "type": "operation",
+      "position": { "x": 80, "y": 30 },
+      "data": {
+        "threadId": "T0",
+        "sequenceIndex": 1,
+        "operation": { "type": "STORE", "addressId": "mem-x", "value": "1" }
+      }
+    },
+    {
+      "id": "t0-n2",
+      "type": "operation",
+      "position": { "x": 160, "y": 30 },
+      "data": {
+        "threadId": "T0",
+        "sequenceIndex": 2,
+        "operation": {
+          "type": "STORE",
+          "addressId": "mem-y",
+          "value": "1",
+          "memoryOrder": "Release"
+        }
+      }
+    },
+    {
+      "id": "t1-n1",
+      "type": "operation",
+      "position": { "x": 80, "y": 150 },
+      "data": {
+        "threadId": "T1",
+        "sequenceIndex": 1,
+        "operation": { "type": "LOAD", "addressId": "mem-y", "memoryOrder": "Acquire" }
+      }
+    },
+    {
+      "id": "t1-n2",
+      "type": "operation",
+      "position": { "x": 160, "y": 150 },
+      "data": {
+        "threadId": "T1",
+        "sequenceIndex": 2,
+        "operation": { "type": "LOAD", "addressId": "mem-x" }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "rf-y",
+      "type": "relation",
+      "source": "t0-n2",
+      "target": "t1-n1",
+      "data": { "relationType": "rf" }
+    },
+    {
+      "id": "rf-x",
+      "type": "relation",
+      "source": "t0-n1",
+      "target": "t1-n2",
+      "data": { "relationType": "rf" }
+    }
+  ],
+  "threads": ["T0", "T1"],
+  "activeBranch": null,
+  "exportedAt": "2026-01-01T00:00:00.000Z"
+}

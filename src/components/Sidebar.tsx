@@ -1,4 +1,4 @@
-import { useCallback, useMemo, type DragEvent } from "react";
+import { useCallback, useMemo, useRef, useState, type DragEvent } from "react";
 import type {
   MemoryOrder,
   MemoryType,
@@ -7,6 +7,7 @@ import type {
   RelationType,
 } from "../types";
 import { useStore } from "../store/useStore";
+import { parseSessionSnapshot } from "../session/parseSessionSnapshot";
 
 type ToolboxItem = {
   label: string;
@@ -51,12 +52,15 @@ const Sidebar = () => {
   const memoryEnv = useStore((state) => state.memoryEnv);
   const activeBranch = useStore((state) => state.activeBranch);
   const resetSession = useStore((state) => state.resetSession);
+  const importSession = useStore((state) => state.importSession);
   const selectedMemoryIds = useStore((state) => state.selectedMemoryIds);
   const relationTypeDraft = useStore((state) => state.relationTypeDraft);
   const setRelationTypeDraft = useStore((state) => state.setRelationTypeDraft);
   const groupSelectedIntoStruct = useStore(
     (state) => state.groupSelectedIntoStruct
   );
+  const sessionFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
 
   const selectedNode = useMemo(
     () => nodes.find((node) => node.selected),
@@ -119,11 +123,16 @@ const Sidebar = () => {
   };
 
   const handleExportSession = useCallback(() => {
+    const memory = {
+      constants: memoryEnv.filter((item) => item.scope === "constants"),
+      locals: memoryEnv.filter((item) => item.scope === "locals"),
+      shared: memoryEnv.filter((item) => item.scope === "shared"),
+    };
     const snapshot = {
+      memory,
       nodes,
       edges,
       threads,
-      memoryEnv,
       activeBranch,
       exportedAt: new Date().toISOString(),
     };
@@ -137,6 +146,23 @@ const Sidebar = () => {
     link.click();
     URL.revokeObjectURL(url);
   }, [activeBranch, edges, memoryEnv, nodes, threads]);
+
+  const handleImportSessionFile = useCallback(
+    async (file: File) => {
+      setImportError(null);
+      try {
+        const rawText = await file.text();
+        const parsed = JSON.parse(rawText) as unknown;
+        const snapshot = parseSessionSnapshot(parsed);
+        importSession(snapshot);
+      } catch (error) {
+        setImportError(
+          error instanceof Error ? error.message : "Failed to import session."
+        );
+      }
+    },
+    [importSession]
+  );
 
   const selectedMemoryItems = useMemo(
     () =>
@@ -187,6 +213,30 @@ const Sidebar = () => {
           >
             Export Session
           </button>
+          <button
+            type="button"
+            className="w-full rounded border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-800"
+            onClick={() => sessionFileInputRef.current?.click()}
+          >
+            Import Session
+          </button>
+          <input
+            ref={sessionFileInputRef}
+            type="file"
+            accept=".json,application/json"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (!file) {
+                return;
+              }
+              void handleImportSessionFile(file);
+            }}
+          />
+          {importError ? (
+            <div className="text-xs text-red-600">{importError}</div>
+          ) : null}
         </div>
       </section>
 

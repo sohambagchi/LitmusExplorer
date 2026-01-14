@@ -1,0 +1,14 @@
+{
+  "memory": {
+    "constants": [
+      { "id": "const-0", "name": "N", "type": "int", "value": "2" }
+    ],
+    "locals": [
+      { "id": "local-0", "name": "tmp", "type": "int", "value": "0" }
+    ],
+    "shared": [
+      { "id": "shared-0", "name": "x", "type": "int", "value": "0" }
+    ]
+  },
+  "exportedAt": "2026-01-01T00:00:00.000Z"
+}

@@ -49,3 +49,18 @@ export type RelationEdgeData = {
 };
 
 export type RelationEdge = Edge<RelationEdgeData>;
+
+export type SessionMemorySnapshot = {
+  constants: MemoryVariable[];
+  locals: MemoryVariable[];
+  shared: MemoryVariable[];
+};
+
+export type SessionSnapshot = {
+  memory: SessionMemorySnapshot;
+  nodes: TraceNode[];
+  edges: RelationEdge[];
+  threads: string[];
+  activeBranch: ActiveBranch | null;
+  exportedAt?: string;
+};

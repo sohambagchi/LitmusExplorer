@@ -148,13 +148,27 @@ const EditorCanvas = () => {
         return;
       }
 
-      addMemoryVar({
-        id: createMemoryId(),
-        name: "",
-        type: memoryType,
-        scope,
-        value: "",
-      });
+      const id = createMemoryId();
+
+      if (memoryType === "int") {
+        addMemoryVar({
+          id,
+          name: "",
+          type: "int",
+          scope,
+          value: "",
+        });
+        return;
+      }
+
+      if (memoryType === "array") {
+        addMemoryVar({
+          id,
+          name: "",
+          type: "array",
+          scope,
+        });
+      }
     },
     [addMemoryVar]
   );
@@ -291,7 +305,11 @@ const EditorCanvas = () => {
   );
 
   const renderMemoryAtom = (item: MemoryVariable, nested: boolean) => {
+    if (item.type === "struct") {
+      return null;
+    }
     const isSelected = selectedMemoryIds.includes(item.id);
+    const isArray = item.type === "array";
 
     return (
       <div
@@ -324,14 +342,31 @@ const EditorCanvas = () => {
               updateMemoryVar(item.id, { name: event.target.value })
             }
           />
-          <input
-            className="w-24 rounded border border-slate-300 px-2 py-1 text-xs"
-            placeholder="value"
-            value={item.value ?? ""}
-            onChange={(event) =>
-              updateMemoryVar(item.id, { value: event.target.value })
-            }
-          />
+          {isArray ? (
+            <input
+              type="number"
+              min={0}
+              className="w-24 rounded border border-slate-300 px-2 py-1 text-xs"
+              placeholder="size"
+              value={item.size ?? ""}
+              onChange={(event) => {
+                const parsed =
+                  event.target.value === "" ? undefined : Number(event.target.value);
+                updateMemoryVar(item.id, {
+                  size: typeof parsed === "number" && !Number.isNaN(parsed) ? parsed : undefined,
+                });
+              }}
+            />
+          ) : (
+            <input
+              className="w-24 rounded border border-slate-300 px-2 py-1 text-xs"
+              placeholder="value"
+              value={item.value ?? ""}
+              onChange={(event) =>
+                updateMemoryVar(item.id, { value: event.target.value })
+              }
+            />
+          )}
         </div>
       </div>
     );

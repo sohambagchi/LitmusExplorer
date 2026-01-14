@@ -272,8 +272,8 @@ const Sidebar = () => {
             Struct
           </button>
           <div className="text-xs text-slate-500">
-            Drag ints or arrays into Memory sections, then name and value them.
-            Select multiple items to enable Struct.
+            Drag ints or arrays into Memory sections, then name them and set a
+            value or size. Select multiple items to enable Struct.
           </div>
         </div>
       </section>

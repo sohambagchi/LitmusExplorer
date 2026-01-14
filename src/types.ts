@@ -3,14 +3,31 @@ import type { Edge, Node } from "reactflow";
 export type MemoryType = "int" | "array" | "struct";
 export type MemoryScope = "constants" | "locals" | "shared";
 
-export type MemoryVariable = {
+type MemoryVariableBase = {
   id: string;
   name: string;
-  type: MemoryType;
   scope: MemoryScope;
-  value?: string;
   parentId?: string;
 };
+
+export type IntMemoryVariable = MemoryVariableBase & {
+  type: "int";
+  value?: string;
+};
+
+export type ArrayMemoryVariable = MemoryVariableBase & {
+  type: "array";
+  size?: number;
+};
+
+export type StructMemoryVariable = MemoryVariableBase & {
+  type: "struct";
+};
+
+export type MemoryVariable =
+  | IntMemoryVariable
+  | ArrayMemoryVariable
+  | StructMemoryVariable;
 
 export type OperationType = "LOAD" | "STORE" | "RMW" | "FENCE" | "BRANCH";
 export type MemoryOrder = "Relaxed" | "Acquire" | "Release" | "SC";

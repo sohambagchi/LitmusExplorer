@@ -51,10 +51,25 @@ const flattenMemorySnapshot = (snapshot: SessionSnapshot) => [
   ...snapshot.memory.shared,
 ];
 
+const DEFAULT_MEMORY_ENV: MemoryVariable[] = [
+  {
+    id: "const-null",
+    name: "NULL",
+    type: "int",
+    scope: "constants",
+    value: "0",
+  },
+];
+
+const createDefaultMemoryEnv = () =>
+  DEFAULT_MEMORY_ENV.map((item) => ({
+    ...item,
+  }));
+
 export const useStore = create<StoreState>()((set, get) => ({
   nodes: [],
   edges: [],
-  memoryEnv: [],
+  memoryEnv: createDefaultMemoryEnv(),
   selectedMemoryIds: [],
   relationTypeDraft: "rf",
   threads: ["T1"],
@@ -155,7 +170,7 @@ export const useStore = create<StoreState>()((set, get) => ({
     set({
       nodes: [],
       edges: [],
-      memoryEnv: [],
+      memoryEnv: createDefaultMemoryEnv(),
       selectedMemoryIds: [],
       relationTypeDraft: "rf",
       threads: ["T1"],

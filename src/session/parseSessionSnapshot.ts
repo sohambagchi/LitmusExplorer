@@ -31,6 +31,29 @@ const parseNumber = (value: unknown, label: string) => {
   return value;
 };
 
+const parseOptionalSize = (value: unknown, label: string) => {
+  if (typeof value === "undefined") {
+    return undefined;
+  }
+  if (typeof value === "number") {
+    if (Number.isNaN(value)) {
+      throw new Error(`${label} must be a number.`);
+    }
+    return value;
+  }
+  if (typeof value === "string") {
+    if (!value.trim()) {
+      return undefined;
+    }
+    const parsed = Number(value);
+    if (Number.isNaN(parsed)) {
+      throw new Error(`${label} must be a number.`);
+    }
+    return parsed;
+  }
+  throw new Error(`${label} must be a number.`);
+};
+
 const parseStringArray = (value: unknown, label: string) => {
   if (!Array.isArray(value)) {
     throw new Error(`${label} must be an array.`);
@@ -162,15 +185,34 @@ const parseMemorySection = (
       throw new Error(`${label}[${index}].type must be a valid memory type.`);
     }
 
-    return {
-      ...(item as MemoryVariable),
+    const parentId =
+      typeof item.parentId === "string" ? item.parentId : undefined;
+    const baseVariable = {
       id,
       name,
-      type: type as MemoryVariable["type"],
       scope,
-      value: typeof item.value === "string" ? item.value : undefined,
-      parentId: typeof item.parentId === "string" ? item.parentId : undefined,
+      parentId,
     };
+
+    if (type === "int") {
+      const value =
+        typeof item.value === "string"
+          ? item.value
+          : typeof item.value === "number"
+            ? String(item.value)
+            : undefined;
+      return { ...baseVariable, type: "int" as const, value };
+    }
+
+    if (type === "array") {
+      const size = parseOptionalSize(
+        typeof item.size !== "undefined" ? item.size : item.value,
+        `${label}[${index}].size`
+      );
+      return { ...baseVariable, type: "array" as const, size };
+    }
+
+    return { ...baseVariable, type: "struct" as const };
   });
 };
 
@@ -216,15 +258,34 @@ const parseLegacyMemoryEnv = (value: unknown): SessionMemorySnapshot => {
       throw new Error(`memoryEnv[${index}].scope must be a valid scope.`);
     }
 
-    return {
-      ...(item as MemoryVariable),
+    const parentId =
+      typeof item.parentId === "string" ? item.parentId : undefined;
+    const baseVariable = {
       id,
       name,
-      type: type as MemoryVariable["type"],
       scope: scope as MemoryVariable["scope"],
-      value: typeof item.value === "string" ? item.value : undefined,
-      parentId: typeof item.parentId === "string" ? item.parentId : undefined,
+      parentId,
     };
+
+    if (type === "int") {
+      const value =
+        typeof item.value === "string"
+          ? item.value
+          : typeof item.value === "number"
+            ? String(item.value)
+            : undefined;
+      return { ...baseVariable, type: "int" as const, value };
+    }
+
+    if (type === "array") {
+      const size = parseOptionalSize(
+        typeof item.size !== "undefined" ? item.size : item.value,
+        `memoryEnv[${index}].size`
+      );
+      return { ...baseVariable, type: "array" as const, size };
+    }
+
+    return { ...baseVariable, type: "struct" as const };
   });
 
   return {

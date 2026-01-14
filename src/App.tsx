@@ -5,10 +5,9 @@ import { useStore } from "./store/useStore";
 import type { RelationEdge, TraceNode } from "./types";
 
 const LANE_HEIGHT = 120;
-const LANE_PADDING = 30;
 const GRID_X = 80;
 
-const laneY = (index: number) => index * LANE_HEIGHT + LANE_PADDING;
+const laneY = (index: number) => index * LANE_HEIGHT + LANE_HEIGHT / 2;
 
 const seedNodes: TraceNode[] = [
   {
@@ -16,7 +15,7 @@ const seedNodes: TraceNode[] = [
     type: "operation",
     position: { x: GRID_X * 1, y: laneY(0) },
     data: {
-      threadId: "T1",
+      threadId: "T0",
       sequenceIndex: 1,
       operation: {
         type: "LOAD",
@@ -30,7 +29,7 @@ const seedNodes: TraceNode[] = [
     type: "branch",
     position: { x: GRID_X * 2, y: laneY(0) },
     data: {
-      threadId: "T1",
+      threadId: "T0",
       sequenceIndex: 2,
       operation: {
         type: "BRANCH",
@@ -43,7 +42,7 @@ const seedNodes: TraceNode[] = [
     type: "operation",
     position: { x: GRID_X * 3, y: laneY(0) },
     data: {
-      threadId: "T1",
+      threadId: "T0",
       sequenceIndex: 3,
       branchId: "n2",
       branchPath: "then",
@@ -60,7 +59,7 @@ const seedNodes: TraceNode[] = [
     type: "operation",
     position: { x: GRID_X * 4, y: laneY(0) },
     data: {
-      threadId: "T1",
+      threadId: "T0",
       sequenceIndex: 4,
       branchId: "n2",
       branchPath: "else",
@@ -77,7 +76,7 @@ const seedNodes: TraceNode[] = [
     type: "operation",
     position: { x: GRID_X * 1, y: laneY(1) },
     data: {
-      threadId: "T2",
+      threadId: "T1",
       sequenceIndex: 1,
       operation: {
         type: "LOAD",
@@ -91,7 +90,7 @@ const seedNodes: TraceNode[] = [
     type: "operation",
     position: { x: GRID_X * 2, y: laneY(1) },
     data: {
-      threadId: "T2",
+      threadId: "T1",
       sequenceIndex: 2,
       operation: {
         type: "FENCE",
@@ -104,7 +103,7 @@ const seedNodes: TraceNode[] = [
     type: "operation",
     position: { x: GRID_X * 3, y: laneY(1) },
     data: {
-      threadId: "T2",
+      threadId: "T1",
       sequenceIndex: 3,
       operation: {
         type: "STORE",
@@ -148,7 +147,7 @@ const App = () => {
 
     seeded.current = true;
     // Seed the initial example once on first load.
-    setThreads(["T1", "T2"]);
+    setThreads(["T0", "T1"]);
     setNodes(seedNodes);
     setEdges(seedEdges);
   }, [nodes.length, setEdges, setNodes, setThreads]);

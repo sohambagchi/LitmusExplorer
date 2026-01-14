@@ -339,7 +339,7 @@ export const parseSessionSnapshot = (value: unknown): SessionSnapshot => {
       ? extractThreadsFromNodes(nodes)
       : parseStringArray(value.threads, "threads");
 
-  const threadsWithFallback = threads.length > 0 ? threads : ["T1"];
+  const threadsWithFallback = threads.length > 0 ? threads : ["T0"];
   const missingThreadIds = extractThreadsFromNodes(nodes).filter(
     (threadId) => !threadsWithFallback.includes(threadId)
   );

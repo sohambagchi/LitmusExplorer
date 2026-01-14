@@ -34,6 +34,7 @@ type StoreState = {
   clearMemorySelection: () => void;
   groupSelectedIntoStruct: () => void;
   setThreads: (threads: string[]) => void;
+  addThread: () => string;
   setActiveBranch: (branch: ActiveBranch | null) => void;
   validateGraph: () => void;
   resetSession: () => void;
@@ -63,13 +64,37 @@ const createDefaultMemoryEnv = () =>
   DEFAULT_MEMORY_ENV.map((item) => ({
     ...item,
   }));
+const getNextThreadId = (threads: string[]) => {
+  const used = new Set(threads);
+  let maxIndex = -1;
+
+  for (const threadId of threads) {
+    const match = /^T(\d+)$/.exec(threadId);
+    if (!match) {
+      continue;
+    }
+    const numericId = Number(match[1]);
+    if (!Number.isNaN(numericId)) {
+      maxIndex = Math.max(maxIndex, numericId);
+    }
+  }
+
+  let nextIndex = maxIndex + 1;
+  let candidate = `T${nextIndex}`;
+  while (used.has(candidate)) {
+    nextIndex += 1;
+    candidate = `T${nextIndex}`;
+  }
+
+  return candidate;
+};
 
 export const useStore = create<StoreState>()((set, get) => ({
   nodes: [],
   edges: [],
   memoryEnv: createDefaultMemoryEnv(),
   selectedMemoryIds: [],
-  threads: ["T1"],
+  threads: ["T0"],
   activeBranch: null,
   setNodes: (updater) =>
     set((state) => ({ nodes: applyUpdater(state.nodes, updater) })),
@@ -137,6 +162,12 @@ export const useStore = create<StoreState>()((set, get) => ({
     });
   },
   setThreads: (threads) => set({ threads }),
+  addThread: () => {
+    const currentThreads = get().threads;
+    const nextId = getNextThreadId(currentThreads);
+    set({ threads: [...currentThreads, nextId] });
+    return nextId;
+  },
   setActiveBranch: (branch) => set({ activeBranch: branch }),
   validateGraph: () => {
     // Flag read-from edges that point backward within a thread's sequence.
@@ -188,7 +219,7 @@ export const useStore = create<StoreState>()((set, get) => ({
       edges: [],
       memoryEnv: createDefaultMemoryEnv(),
       selectedMemoryIds: [],
-      threads: ["T1"],
+      threads: ["T0"],
       activeBranch: null,
     }),
   importSession: (snapshot) => {
@@ -197,7 +228,7 @@ export const useStore = create<StoreState>()((set, get) => ({
       edges: snapshot.edges.map((edge) => ({ ...edge, selected: false })),
       memoryEnv: flattenMemorySnapshot(snapshot),
       selectedMemoryIds: [],
-      threads: snapshot.threads.length > 0 ? snapshot.threads : ["T1"],
+      threads: snapshot.threads.length > 0 ? snapshot.threads : ["T0"],
       activeBranch: snapshot.activeBranch,
     });
   },

@@ -237,6 +237,10 @@ const EditorCanvas = () => {
   const updateMemoryVar = useStore((state) => state.updateMemoryVar);
   const deleteMemoryVar = useStore((state) => state.deleteMemoryVar);
   const validateGraph = useStore((state) => state.validateGraph);
+  const edgeLabelMode = useStore((state) => state.edgeLabelMode);
+  const focusedEdgeLabelId = useStore((state) => state.focusedEdgeLabelId);
+  const cycleEdgeLabelMode = useStore((state) => state.cycleEdgeLabelMode);
+  const setFocusedEdgeLabelId = useStore((state) => state.setFocusedEdgeLabelId);
   const toggleMemorySelection = useStore(
     (state) => state.toggleMemorySelection
   );
@@ -1116,6 +1120,20 @@ const EditorCanvas = () => {
               nodesConnectable={!isLocked}
               onNodesChange={handleNodesChange}
               onEdgesChange={onEdgesChange}
+              onEdgeClick={(_event, edge) => {
+                if (edgeLabelMode !== "off") {
+                  return;
+                }
+                setFocusedEdgeLabelId(
+                  focusedEdgeLabelId === edge.id ? null : edge.id
+                );
+              }}
+              onPaneClick={() => {
+                if (edgeLabelMode !== "off") {
+                  return;
+                }
+                setFocusedEdgeLabelId(null);
+              }}
               onNodeDragStop={handleNodeDragStop}
               onConnect={handleConnect}
               onDrop={handleDrop}
@@ -1227,6 +1245,19 @@ const EditorCanvas = () => {
               onClick={handleFitView}
             >
               Fit
+            </button>
+            <button
+              type="button"
+              className="rounded border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700"
+              onClick={cycleEdgeLabelMode}
+              aria-label="Cycle edge label mode"
+            >
+              Labels:{" "}
+              {edgeLabelMode === "all"
+                ? "All"
+                : edgeLabelMode === "nonPo"
+                  ? "Relations"
+                  : "Off"}
             </button>
           </div>
           <button

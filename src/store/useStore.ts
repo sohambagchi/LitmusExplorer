@@ -58,6 +58,8 @@ type StoreState = {
   selectedMemoryIds: string[];
   threads: string[];
   activeBranch: ActiveBranch | null;
+  edgeLabelMode: "all" | "nonPo" | "off";
+  focusedEdgeLabelId: string | null;
   catModel: {
     filesByName: Record<string, string>;
     analysis: CatModelAnalysis | null;
@@ -84,6 +86,8 @@ type StoreState = {
   setThreads: (threads: string[]) => void;
   addThread: () => string;
   setActiveBranch: (branch: ActiveBranch | null) => void;
+  cycleEdgeLabelMode: () => void;
+  setFocusedEdgeLabelId: (edgeId: string | null) => void;
   validateGraph: () => void;
   resetSession: () => void;
   importSession: (snapshot: SessionSnapshot) => void;
@@ -171,6 +175,8 @@ export const useStore = create<StoreState>()((set, get) => ({
   selectedMemoryIds: [],
   threads: ["T0"],
   activeBranch: null,
+  edgeLabelMode: "nonPo",
+  focusedEdgeLabelId: null,
   catModel: { filesByName: {}, analysis: null, definitions: [], error: null },
   setSessionTitle: (title) => set({ sessionTitle: title }),
   setModelConfig: (updates) =>
@@ -182,6 +188,17 @@ export const useStore = create<StoreState>()((set, get) => ({
       modelConfig: createDefaultModelConfig(),
       catModel: { filesByName: {}, analysis: null, definitions: [], error: null },
     }),
+  cycleEdgeLabelMode: () =>
+    set((state) => {
+      const next =
+        state.edgeLabelMode === "all"
+          ? "nonPo"
+          : state.edgeLabelMode === "nonPo"
+            ? "off"
+            : "all";
+      return { edgeLabelMode: next, focusedEdgeLabelId: null };
+    }),
+  setFocusedEdgeLabelId: (edgeId) => set({ focusedEdgeLabelId: edgeId }),
   importCatFiles: async (files) => {
     const fileList = Array.isArray(files) ? files : Array.from(files);
     if (fileList.length === 0) {

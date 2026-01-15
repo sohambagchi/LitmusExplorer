@@ -1,5 +1,6 @@
-import { BaseEdge, type EdgeProps, useReactFlow } from "reactflow";
+import { BaseEdge, EdgeLabelRenderer, type EdgeProps, useReactFlow } from "reactflow";
 import type { Node } from "reactflow";
+import { useStore } from "../store/useStore";
 import type { RelationEdgeData, RelationType, TraceNodeData } from "../types";
 
 // Render a jagged path to emphasize invalid relations.
@@ -258,6 +259,31 @@ const buildJaggedOrthogonalPath = (points: Point[]) => {
   return pointsToPath(simplifyPoints(jagged));
 };
 
+const getHorizontalLabelAnchor = (points: Point[]) => {
+  let best: { x1: number; x2: number; y: number; length: number } | null = null;
+
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const start = points[i];
+    const end = points[i + 1];
+    if (!start || !end) {
+      continue;
+    }
+    if (start.y !== end.y || start.x === end.x) {
+      continue;
+    }
+    const length = Math.abs(end.x - start.x);
+    if (!best || length > best.length) {
+      best = { x1: start.x, x2: end.x, y: start.y, length };
+    }
+  }
+
+  if (!best) {
+    return null;
+  }
+
+  return { x: (best.x1 + best.x2) / 2, y: best.y };
+};
+
 const coreRelationColors: Record<string, string> = {
   rf: "#0f172a",
   co: "#0284c7",
@@ -307,6 +333,9 @@ const RelationEdge = ({
   const relationType = data?.relationType ?? "po";
   const isDependencyBand =
     relationType === "ad" || relationType === "cd" || relationType === "dd";
+  const isGenerated = data?.generated ?? false;
+  const edgeLabelMode = useStore((state) => state.edgeLabelMode);
+  const focusedEdgeLabelId = useStore((state) => state.focusedEdgeLabelId);
   const points = buildOrthogonalPoints({
     sourceX,
     sourceY,
@@ -325,32 +354,69 @@ const RelationEdge = ({
   const bandStrokeWidth =
     relationType === "ad" ? 14 : relationType === "cd" ? 12 : 12;
   const bandOpacity = relationType === "ad" ? 0.25 : 0.22;
+  const labelAnchor = getHorizontalLabelAnchor(points);
+  const isLabelEligible = !isGenerated && !isDependencyBand && !!labelAnchor;
+  const shouldShowByMode =
+    edgeLabelMode === "all"
+      ? true
+      : edgeLabelMode === "nonPo"
+        ? relationType !== "po"
+        : focusedEdgeLabelId === id;
+  const showLabel = isLabelEligible && shouldShowByMode;
 
   return (
-    <BaseEdge
-      id={id}
-      path={edgePath}
-      markerEnd={markerEnd}
-      interactionWidth={24}
-      style={{
-        ...style,
-        stroke: invalid ? "#ef4444" : stroke,
-        strokeWidth: isDependencyBand
-          ? bandStrokeWidth
-          : invalid
-            ? 2.5
-            : isSelected
-              ? 2.75
-              : style?.strokeWidth ?? 1.75,
-        opacity: isDependencyBand ? bandOpacity : style?.opacity,
-        strokeLinecap: isDependencyBand ? "round" : style?.strokeLinecap,
-        strokeDasharray: isSelected
-          ? "5 4"
-          : isDependencyBand
-            ? undefined
-            : style?.strokeDasharray,
-      }}
-    />
+    <>
+      <BaseEdge
+        id={id}
+        path={edgePath}
+        markerEnd={markerEnd}
+        interactionWidth={24}
+        style={{
+          ...style,
+          stroke: invalid ? "#ef4444" : stroke,
+          strokeWidth: isDependencyBand
+            ? bandStrokeWidth
+            : invalid
+              ? 2.5
+              : isSelected
+                ? 2.75
+                : style?.strokeWidth ?? 1.75,
+          opacity: isDependencyBand ? bandOpacity : style?.opacity,
+          strokeLinecap: isDependencyBand ? "round" : style?.strokeLinecap,
+          strokeDasharray: isSelected
+            ? "5 4"
+            : isDependencyBand
+              ? undefined
+              : style?.strokeDasharray,
+        }}
+      />
+      {showLabel && labelAnchor ? (
+        <EdgeLabelRenderer>
+          <div
+            className="nodrag nopan relative z-10 max-w-[180px] truncate rounded-full border bg-white px-2 py-0.5 text-[10px] font-semibold shadow-md"
+            style={{
+              position: "absolute",
+              transform: `translate(-50%, -50%) translate(${labelAnchor.x}px, ${labelAnchor.y}px)`,
+              pointerEvents: "none",
+              zIndex: 10,
+              borderColor: invalid
+                ? "#fecaca"
+                : isSelected
+                  ? "#0f172a"
+                  : "rgba(226, 232, 240, 1)",
+              color: invalid
+                ? "#b91c1c"
+                : isSelected
+                  ? "#0f172a"
+                  : "rgba(51, 65, 85, 1)",
+            }}
+            aria-hidden="true"
+          >
+            {relationType}
+          </div>
+        </EdgeLabelRenderer>
+      ) : null}
+    </>
   );
 };
 

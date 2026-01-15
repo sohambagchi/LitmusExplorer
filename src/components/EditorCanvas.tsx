@@ -261,7 +261,7 @@ const LaneLabelsOverlay = ({
       >
         <div className="pointer-events-auto w-full max-w-[220px] rounded-md border border-slate-800 bg-slate-900/95 p-1 text-white shadow-sm">
           <div className="flex h-5 items-center justify-between gap-2">
-            <div className="flex h-5 items-center rounded border border-white/10 bg-white/5 px-2 text-[11px] font-semibold leading-none text-white">
+            <div className="flex h-5 items-center rounded px-2 text-[11px] font-semibold leading-none text-white">
               {threadId}
             </div>
             <button

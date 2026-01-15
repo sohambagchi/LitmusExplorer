@@ -5,142 +5,21 @@ import Sidebar from "./components/Sidebar";
 import SessionTitleDialog from "./components/SessionTitleDialog";
 import ShareDialog from "./components/ShareDialog";
 import { useStore } from "./store/useStore";
-import type { RelationEdge, TraceNode } from "./types";
-import { createBranchGroupCondition } from "./utils/branchConditionFactory";
 import { createSessionSnapshot } from "./session/createSessionSnapshot";
 import { createShare, fetchSharedSnapshot } from "./share/shareApi";
 import { createUuid } from "./utils/createUuid";
 import { isUuid } from "./utils/isUuid";
 import { parseSessionSnapshot } from "./session/parseSessionSnapshot";
+import messagePassingSessionRaw from "../tests/session-samples/message-passing.json";
 
-const LANE_HEIGHT = 120;
-const GRID_X = 80;
-
-const laneY = (index: number) => index * LANE_HEIGHT + LANE_HEIGHT / 2;
-
-const seedNodes: TraceNode[] = [
-  {
-    id: "n1",
-    type: "operation",
-    position: { x: GRID_X * 1, y: laneY(0) },
-    data: {
-      threadId: "T0",
-      sequenceIndex: 1,
-      operation: {
-        type: "LOAD",
-        address: "x",
-        memoryOrder: "Acquire",
-      },
-    },
-  },
-  {
-    id: "n2",
-    type: "branch",
-    position: { x: GRID_X * 2, y: laneY(0) },
-    data: {
-      threadId: "T0",
-      sequenceIndex: 2,
-      operation: {
-        type: "BRANCH",
-        text: "if r0",
-        branchCondition: createBranchGroupCondition(),
-      },
-    },
-  },
-  {
-    id: "n3",
-    type: "operation",
-    position: { x: GRID_X * 3, y: laneY(0) },
-    data: {
-      threadId: "T0",
-      sequenceIndex: 3,
-      branchId: "n2",
-      branchPath: "then",
-      operation: {
-        type: "STORE",
-        address: "x",
-        value: "1",
-        memoryOrder: "Release",
-      },
-    },
-  },
-  {
-    id: "n4",
-    type: "operation",
-    position: { x: GRID_X * 4, y: laneY(0) },
-    data: {
-      threadId: "T0",
-      sequenceIndex: 4,
-      branchId: "n2",
-      branchPath: "else",
-      operation: {
-        type: "STORE",
-        address: "x",
-        value: "2",
-        memoryOrder: "Release",
-      },
-    },
-  },
-  {
-    id: "n5",
-    type: "operation",
-    position: { x: GRID_X * 1, y: laneY(1) },
-    data: {
-      threadId: "T1",
-      sequenceIndex: 1,
-      operation: {
-        type: "LOAD",
-        address: "x",
-        memoryOrder: "Relaxed",
-      },
-    },
-  },
-  {
-    id: "n6",
-    type: "operation",
-    position: { x: GRID_X * 2, y: laneY(1) },
-    data: {
-      threadId: "T1",
-      sequenceIndex: 2,
-      operation: {
-        type: "FENCE",
-        memoryOrder: "SC",
-      },
-    },
-  },
-  {
-    id: "n7",
-    type: "operation",
-    position: { x: GRID_X * 3, y: laneY(1) },
-    data: {
-      threadId: "T1",
-      sequenceIndex: 3,
-      operation: {
-        type: "STORE",
-        address: "x",
-        value: "1",
-        memoryOrder: "Release",
-      },
-    },
-  },
-];
-
-const seedEdges: RelationEdge[] = [
-  {
-    id: "e1",
-    type: "relation",
-    source: "n3",
-    target: "n5",
-    data: { relationType: "rf" },
-  },
-  {
-    id: "e2",
-    type: "relation",
-    source: "n7",
-    target: "n1",
-    data: { relationType: "rf" },
-  },
-];
+const defaultSessionSnapshot = (() => {
+  try {
+    return parseSessionSnapshot(messagePassingSessionRaw);
+  } catch (error) {
+    console.error("Failed to parse default session JSON.", error);
+    return null;
+  }
+})();
 
 const App = () => {
   const [sharedSessionId] = useState(() => {
@@ -154,10 +33,7 @@ const App = () => {
     return isUuid(trimmedPath) ? trimmedPath : null;
   });
   const nodes = useStore((state) => state.nodes);
-  const setNodes = useStore((state) => state.setNodes);
   const edges = useStore((state) => state.edges);
-  const setEdges = useStore((state) => state.setEdges);
-  const setThreads = useStore((state) => state.setThreads);
   const validateGraph = useStore((state) => state.validateGraph);
   const sessionTitle = useStore((state) => state.sessionTitle);
   const setSessionTitle = useStore((state) => state.setSessionTitle);
@@ -276,11 +152,11 @@ const App = () => {
     }
 
     seeded.current = true;
-    // Seed the initial example once on first load.
-    setThreads(["T0", "T1"]);
-    setNodes(seedNodes);
-    setEdges(seedEdges);
-  }, [nodes.length, setEdges, setNodes, setThreads, sharedSessionId]);
+    // Load the default session once on first load.
+    if (defaultSessionSnapshot) {
+      importSession(defaultSessionSnapshot);
+    }
+  }, [importSession, nodes.length, sharedSessionId]);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-100 text-slate-900">

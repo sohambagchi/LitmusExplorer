@@ -1,7 +1,35 @@
 {
+  "title": "BaseMessagePassing",
+  "model": {
+    "relationTypes": ["rf", "co", "fr", "po", "ad", "cd", "dd"],
+    "memoryOrders": ["Standard", "Relaxed", "Acquire", "Release", "Acq_Rel", "SC"]
+  },
   "memory": {
-    "constants": [],
-    "locals": [],
+    "constants": [
+      {
+        "id": "mem-1768443673933-1b39c347cf0e18",
+        "name": "NULL",
+        "type": "int",
+        "scope": "constants",
+        "value": "0"
+      }
+    ],
+    "locals": [
+      {
+        "id": "mem-1768443669376-db0ccb80736fb",
+        "name": "r0",
+        "type": "int",
+        "scope": "locals",
+        "value": ""
+      },
+      {
+        "id": "mem-1768443669533-63d2d3bdbd7048",
+        "name": "r1",
+        "type": "int",
+        "scope": "locals",
+        "value": ""
+      }
+    ],
     "shared": [
       { "id": "mem-x", "name": "X", "type": "int", "value": "0" },
       { "id": "mem-y", "name": "Y", "type": "int", "value": "0" }
@@ -11,66 +39,122 @@
     {
       "id": "t0-n1",
       "type": "operation",
-      "position": { "x": 80, "y": 30 },
+      "position": { "x": 80, "y": 60 },
       "data": {
         "threadId": "T0",
         "sequenceIndex": 1,
-        "operation": { "type": "STORE", "addressId": "mem-x", "value": "1" }
-      }
+        "operation": {
+          "type": "STORE",
+          "addressId": "mem-x",
+          "value": "1",
+          "memoryOrder": "Relaxed"
+        }
+      },
+      "selected": false,
+      "width": 110,
+      "height": 44,
+      "dragging": false
     },
     {
       "id": "t0-n2",
       "type": "operation",
-      "position": { "x": 160, "y": 30 },
+      "position": { "x": 400, "y": 60 },
       "data": {
         "threadId": "T0",
-        "sequenceIndex": 2,
+        "sequenceIndex": 5,
         "operation": {
           "type": "STORE",
           "addressId": "mem-y",
           "value": "1",
           "memoryOrder": "Release"
         }
-      }
+      },
+      "selected": false,
+      "width": 110,
+      "height": 44,
+      "positionAbsolute": { "x": 385, "y": 46 },
+      "dragging": false
     },
     {
       "id": "t1-n1",
       "type": "operation",
-      "position": { "x": 80, "y": 150 },
+      "position": { "x": 80, "y": 180 },
       "data": {
         "threadId": "T1",
         "sequenceIndex": 1,
-        "operation": { "type": "LOAD", "addressId": "mem-y", "memoryOrder": "Acquire" }
-      }
+        "operation": {
+          "type": "LOAD",
+          "addressId": "mem-y",
+          "memoryOrder": "Acquire",
+          "resultId": "mem-1768443669376-db0ccb80736fb"
+        }
+      },
+      "selected": false,
+      "width": 110,
+      "height": 44,
+      "dragging": false
     },
     {
       "id": "t1-n2",
       "type": "operation",
-      "position": { "x": 160, "y": 150 },
+      "position": { "x": 480, "y": 180 },
       "data": {
         "threadId": "T1",
-        "sequenceIndex": 2,
-        "operation": { "type": "LOAD", "addressId": "mem-x" }
-      }
+        "sequenceIndex": 6,
+        "operation": {
+          "type": "LOAD",
+          "addressId": "mem-x",
+          "resultId": "mem-1768443669533-63d2d3bdbd7048",
+          "memoryOrder": "Relaxed"
+        }
+      },
+      "selected": true,
+      "width": 110,
+      "height": 44,
+      "positionAbsolute": { "x": 450, "y": 173 },
+      "dragging": false
     }
   ],
   "edges": [
     {
-      "id": "rf-y",
+      "source": "t0-n1",
+      "sourceHandle": null,
+      "target": "t0-n2",
+      "targetHandle": null,
+      "id": "edge-1768443689145-b8dec9806bca1",
       "type": "relation",
-      "source": "t0-n2",
-      "target": "t1-n1",
-      "data": { "relationType": "rf" }
+      "data": { "relationType": "po", "invalid": false }
     },
     {
-      "id": "rf-x",
-      "type": "relation",
-      "source": "t0-n1",
+      "source": "t1-n1",
+      "sourceHandle": null,
       "target": "t1-n2",
-      "data": { "relationType": "rf" }
+      "targetHandle": null,
+      "id": "edge-1768443696660-f36ae6a11b7b7",
+      "type": "relation",
+      "data": { "relationType": "po", "invalid": false }
+    },
+    {
+      "source": "t1-n2",
+      "sourceHandle": null,
+      "target": "t0-n1",
+      "targetHandle": null,
+      "id": "edge-1768443698663-eead7f4a32eb18",
+      "type": "relation",
+      "data": { "relationType": "rf", "invalid": false },
+      "selected": false
+    },
+    {
+      "source": "t0-n2",
+      "sourceHandle": null,
+      "target": "t1-n1",
+      "targetHandle": null,
+      "id": "edge-1768443701333-02b6fc3ee2d618",
+      "type": "relation",
+      "data": { "relationType": "fr", "invalid": false },
+      "selected": false
     }
   ],
   "threads": ["T0", "T1"],
-  "activeBranch": null,
-  "exportedAt": "2026-01-01T00:00:00.000Z"
+  "activeBranch": null
 }

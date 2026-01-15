@@ -153,7 +153,7 @@ type CatAssetFixture = {
 };
 
 const LKMM_CAT_FIXTURES: CatAssetFixture[] = (() => {
-  const modules = import.meta.glob<string>("../../assets/lkmm/*.cat", {
+  const modules = import.meta.glob<string>("../../assets/cat/lkmm/*.cat", {
     eager: true,
     query: "?raw",
     import: "default",

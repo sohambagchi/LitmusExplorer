@@ -6,6 +6,7 @@ import type {
   LogicalOp,
   RuleEvaluation,
 } from "../types";
+import { ChevronDown, ChevronUp, Trash2 } from "lucide-react";
 import {
   createBranchGroupCondition,
   createBranchRuleCondition,
@@ -36,6 +37,12 @@ const EVALUATIONS: { value: RuleEvaluation; label: string }[] = [
   { value: "true", label: "True" },
   { value: "false", label: "False" },
 ];
+
+const ICON_BUTTON_CLASS =
+  "inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-1";
+
+const ICON_DANGER_BUTTON_CLASS =
+  "inline-flex h-7 w-7 items-center justify-center rounded border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-1";
 
 const updateGroupById = (
   root: BranchGroupCondition,
@@ -384,43 +391,49 @@ const GroupEditor = ({
                         ))}
                       </select>
                       <select
-                      className="w-28 rounded border border-slate-300 px-2 py-1 text-xs"
-                      value={item.evaluation}
-                      onChange={(event) =>
-                        handleUpdateRule(group.id, index, {
-                          evaluation: event.target.value as RuleEvaluation,
-                        })
-                      }
-                    >
-                      {EVALUATIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
+                        className="w-28 rounded border border-slate-300 px-2 py-1 text-xs"
+                        value={item.evaluation}
+                        onChange={(event) =>
+                          handleUpdateRule(group.id, index, {
+                            evaluation: event.target.value as RuleEvaluation,
+                          })
+                        }
+                      >
+                        {EVALUATIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
                       <div className="flex items-center gap-1">
                         <button
                           type="button"
-                          className="rounded bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-800"
+                          className={ICON_BUTTON_CLASS}
                           onClick={() => handleMoveItem(group.id, index, -1)}
                           disabled={index === 0}
+                          aria-label="Move rule up"
+                          title="Move up"
                         >
-                          ↑
+                          <ChevronUp className="h-4 w-4" aria-hidden="true" />
                         </button>
                         <button
                           type="button"
-                          className="rounded bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-800"
+                          className={ICON_BUTTON_CLASS}
                           onClick={() => handleMoveItem(group.id, index, 1)}
                           disabled={index === group.items.length - 1}
+                          aria-label="Move rule down"
+                          title="Move down"
                         >
-                          ↓
+                          <ChevronDown className="h-4 w-4" aria-hidden="true" />
                         </button>
                         <button
                           type="button"
-                          className="rounded bg-rose-600 px-2 py-1 text-xs font-semibold text-white"
+                          className={ICON_DANGER_BUTTON_CLASS}
                           onClick={() => handleDeleteItem(group.id, index)}
+                          aria-label="Delete rule"
+                          title="Delete"
                         >
-                          ✕
+                          <Trash2 className="h-4 w-4" aria-hidden="true" />
                         </button>
                       </div>
                     </div>
@@ -440,26 +453,32 @@ const GroupEditor = ({
                           </button>
                           <button
                             type="button"
-                            className="rounded bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-800"
+                            className={ICON_BUTTON_CLASS}
                             onClick={() => handleMoveItem(group.id, index, -1)}
                             disabled={index === 0}
+                            aria-label="Move group up"
+                            title="Move up"
                           >
-                            ↑
+                            <ChevronUp className="h-4 w-4" aria-hidden="true" />
                           </button>
                           <button
                             type="button"
-                            className="rounded bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-800"
+                            className={ICON_BUTTON_CLASS}
                             onClick={() => handleMoveItem(group.id, index, 1)}
                             disabled={index === group.items.length - 1}
+                            aria-label="Move group down"
+                            title="Move down"
                           >
-                            ↓
+                            <ChevronDown className="h-4 w-4" aria-hidden="true" />
                           </button>
                           <button
                             type="button"
-                            className="rounded bg-rose-600 px-2 py-1 text-xs font-semibold text-white"
+                            className={ICON_DANGER_BUTTON_CLASS}
                             onClick={() => handleDeleteItem(group.id, index)}
+                            aria-label="Delete group"
+                            title="Delete"
                           >
-                            ✕
+                            <Trash2 className="h-4 w-4" aria-hidden="true" />
                           </button>
                         </div>
                       </div>

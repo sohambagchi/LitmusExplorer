@@ -35,6 +35,7 @@ import { createBranchGroupCondition } from "../utils/branchConditionFactory";
 import { evaluateBranchCondition } from "../utils/branchEvaluation";
 import ConfirmDialog from "./ConfirmDialog";
 import { exportReactFlowViewportToPng } from "../utils/exportReactFlowPng";
+import { Trash2 } from "lucide-react";
 
 const LANE_HEIGHT = 120;
 const LANE_LABEL_WIDTH = 64;
@@ -1011,11 +1012,11 @@ const EditorCanvas = () => {
           />
           <button
             type="button"
-            className="rounded border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+            className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-1"
             aria-label={`Delete ${item.name.trim() || item.id}`}
             onClick={() => requestDeleteMemory(item)}
           >
-            ×
+            <Trash2 className="h-4 w-4" aria-hidden="true" />
           </button>
           {isArray ? (
             <input
@@ -1069,11 +1070,11 @@ const EditorCanvas = () => {
           />
           <button
             type="button"
-            className="rounded border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+            className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-1"
             aria-label={`Delete ${item.name.trim() || item.id}`}
             onClick={() => requestDeleteMemory(item)}
           >
-            ×
+            <Trash2 className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
         <div className="mt-2 space-y-1">

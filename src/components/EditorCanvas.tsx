@@ -47,7 +47,7 @@ const PAN_SPEED = 1;
 const CANVAS_NODE_ORIGIN: [number, number] = [0.5, 0];
 
 const DEFAULT_EDGE_ARROW_COLOR = "#0f172a";
-const DEFAULT_EDGE_ARROW_SIZE = 16;
+const DEFAULT_EDGE_ARROW_SIZE = 20;
 
 const coreRelationColors: Record<string, string> = {
   rf: "#0f172a",

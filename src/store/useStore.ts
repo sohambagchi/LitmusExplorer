@@ -7,6 +7,9 @@ import {
 } from "reactflow";
 import type {
   ActiveBranch,
+  BranchCondition,
+  BranchGroupCondition,
+  BranchRuleCondition,
   MemoryVariable,
   RelationEdge,
   SessionModelConfig,
@@ -19,6 +22,32 @@ import { analyzeCatFiles, type CatModelAnalysis } from "../cat/catParser";
 
 type NodesUpdater = TraceNode[] | ((nodes: TraceNode[]) => TraceNode[]);
 type EdgesUpdater = RelationEdge[] | ((edges: RelationEdge[]) => RelationEdge[]);
+
+const scrubBranchCondition = (
+  condition: BranchCondition | undefined,
+  deletedId: string
+): BranchCondition | undefined => {
+  if (!condition) {
+    return condition;
+  }
+
+  if (condition.kind === "rule") {
+    const next: BranchRuleCondition = { ...condition };
+    if (next.lhsId === deletedId) {
+      next.lhsId = undefined;
+    }
+    if (next.rhsId === deletedId) {
+      next.rhsId = undefined;
+    }
+    return next;
+  }
+
+  const nextItems = condition.items.map((item) =>
+    scrubBranchCondition(item, deletedId)
+  ) as BranchCondition[];
+  const next: BranchGroupCondition = { ...condition, items: nextItems };
+  return next;
+};
 
 type StoreState = {
   sessionTitle: string;
@@ -48,6 +77,7 @@ type StoreState = {
   deleteThread: (threadId: string) => void;
   addMemoryVar: (variable: MemoryVariable) => void;
   updateMemoryVar: (id: string, updates: Partial<MemoryVariable>) => void;
+  deleteMemoryVar: (id: string) => void;
   toggleMemorySelection: (id: string) => void;
   clearMemorySelection: () => void;
   groupSelectedIntoStruct: () => void;
@@ -338,6 +368,65 @@ export const useStore = create<StoreState>()((set, get) => ({
         variable.id === id ? { ...variable, ...updates } : variable
       ),
     })),
+  deleteMemoryVar: (id) => {
+    const { memoryEnv, nodes, selectedMemoryIds } = get();
+    const deleting = memoryEnv.find((item) => item.id === id);
+    if (!deleting) {
+      return;
+    }
+
+    const nextMemoryEnv = memoryEnv
+      .filter((item) => item.id !== id)
+      .map((item) => {
+        if (item.parentId !== id) {
+          return item;
+        }
+        return { ...item, parentId: undefined };
+      });
+
+    const scrubOperation = (op: TraceNode["data"]["operation"]) => {
+      const next = { ...op };
+      if (next.addressId === id) {
+        next.addressId = undefined;
+      }
+      if (next.indexId === id) {
+        next.indexId = undefined;
+      }
+      if (next.valueId === id) {
+        next.valueId = undefined;
+      }
+      if (next.resultId === id) {
+        next.resultId = undefined;
+      }
+      if (next.expectedValueId === id) {
+        next.expectedValueId = undefined;
+      }
+      if (next.desiredValueId === id) {
+        next.desiredValueId = undefined;
+      }
+      if (next.type === "BRANCH") {
+        next.branchCondition = scrubBranchCondition(next.branchCondition, id) as
+          | BranchGroupCondition
+          | undefined;
+      }
+      return next;
+    };
+
+    const nextNodes = nodes.map((node) => ({
+      ...node,
+      data: {
+        ...node.data,
+        operation: scrubOperation(node.data.operation),
+      },
+    }));
+
+    set({
+      memoryEnv: nextMemoryEnv,
+      nodes: nextNodes,
+      selectedMemoryIds: selectedMemoryIds.filter((selectedId) => selectedId !== id),
+    });
+    get().validateGraph();
+  },
   toggleMemorySelection: (id) =>
     set((state) => ({
       selectedMemoryIds: state.selectedMemoryIds.includes(id)

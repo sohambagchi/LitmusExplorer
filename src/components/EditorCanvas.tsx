@@ -20,9 +20,11 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import type {
+  BranchCondition,
   MemoryScope,
   MemoryType,
   MemoryVariable,
+  RelationEdge,
   TraceNode,
 } from "../types";
 import { useStore } from "../store/useStore";
@@ -42,7 +44,7 @@ const PAN_SPEED = 1;
 
 const MEMORY_SECTIONS: { label: string; scope: MemoryScope }[] = [
   { label: "Constants", scope: "constants" },
-  { label: "Locals", scope: "locals" },
+  { label: "Local Registers", scope: "locals" },
   { label: "Shared", scope: "shared" },
 ];
 
@@ -63,6 +65,61 @@ const getSequenceX = (sequenceIndex: number) => sequenceIndex * GRID_X;
 
 const createMemoryId = () =>
   `mem-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+const getNextRegisterName = (memoryEnv: MemoryVariable[]) => {
+  const used = new Set<string>();
+  let maxIndex = -1;
+
+  for (const item of memoryEnv) {
+    if (item.scope !== "locals" || item.type !== "int") {
+      continue;
+    }
+    const name = item.name.trim();
+    if (!name) {
+      continue;
+    }
+    used.add(name);
+    const match = /^r(\d+)$/.exec(name);
+    if (!match) {
+      continue;
+    }
+    const index = Number(match[1]);
+    if (!Number.isNaN(index)) {
+      maxIndex = Math.max(maxIndex, index);
+    }
+  }
+
+  let nextIndex = maxIndex + 1;
+  let candidate = `r${nextIndex}`;
+  while (used.has(candidate)) {
+    nextIndex += 1;
+    candidate = `r${nextIndex}`;
+  }
+  return candidate;
+};
+
+const collectConditionVariableIds = (condition: BranchCondition | undefined) => {
+  if (!condition) {
+    return [];
+  }
+
+  if (condition.kind === "rule") {
+    const ids: string[] = [];
+    if (condition.lhsId) {
+      ids.push(condition.lhsId);
+    }
+    if (condition.rhsId) {
+      ids.push(condition.rhsId);
+    }
+    return ids;
+  }
+
+  const ids: string[] = [];
+  for (const item of condition.items) {
+    ids.push(...collectConditionVariableIds(item));
+  }
+  return ids;
+};
 
 const getThreadsForLayout = (threads: string[], nodes: TraceNode[]) => {
   const orderedThreads = threads;
@@ -178,6 +235,7 @@ const EditorCanvas = () => {
   const deleteThread = useStore((state) => state.deleteThread);
   const addMemoryVar = useStore((state) => state.addMemoryVar);
   const updateMemoryVar = useStore((state) => state.updateMemoryVar);
+  const deleteMemoryVar = useStore((state) => state.deleteMemoryVar);
   const validateGraph = useStore((state) => state.validateGraph);
   const toggleMemorySelection = useStore(
     (state) => state.toggleMemorySelection
@@ -188,6 +246,11 @@ const EditorCanvas = () => {
   const [pendingThreadDelete, setPendingThreadDelete] = useState<{
     threadId: string;
     nodeCount: number;
+  } | null>(null);
+  const [pendingMemoryDelete, setPendingMemoryDelete] = useState<{
+    id: string;
+    label: string;
+    usageCount: number;
   } | null>(null);
 
   const nodeTypes = useMemo(
@@ -300,13 +363,158 @@ const EditorCanvas = () => {
       })),
     [edges]
   );
+
+  const addressDependencyEdges = useMemo<RelationEdge[]>(() => {
+    const memoryTypeById = new Map(memoryEnv.map((item) => [item.id, item.type]));
+    const dependencyTypes = new Set(["ad", "cd", "dd"]);
+    const existingDependencyEdges = new Set(
+      edges
+        .filter((edge) => dependencyTypes.has(edge.data?.relationType ?? "po"))
+        .map(
+          (edge) =>
+            `${edge.data?.relationType ?? "po"}:${edge.source}→${edge.target}`
+        )
+    );
+
+    const nodesByThread = new Map<string, TraceNode[]>();
+    for (const node of nodes) {
+      const threadNodes = nodesByThread.get(node.data.threadId) ?? [];
+      threadNodes.push(node);
+      nodesByThread.set(node.data.threadId, threadNodes);
+    }
+
+    const derived: RelationEdge[] = [];
+
+    for (const [, threadNodes] of nodesByThread) {
+      const sorted = [...threadNodes].sort((a, b) => {
+        const delta = a.data.sequenceIndex - b.data.sequenceIndex;
+        return delta !== 0 ? delta : a.id.localeCompare(b.id);
+      });
+
+      const lastLoadByProducedId = new Map<string, TraceNode>();
+      const lastLoadByAddressId = new Map<string, TraceNode>();
+
+      const pushDerived = ({
+        relationType,
+        source,
+        target,
+      }: {
+        relationType: "ad" | "cd" | "dd";
+        source: TraceNode;
+        target: TraceNode;
+      }) => {
+        const key = `${relationType}:${source.id}→${target.id}`;
+        if (existingDependencyEdges.has(key)) {
+          return;
+        }
+        existingDependencyEdges.add(key);
+        derived.push({
+          id: `edge-${relationType}-${source.id}-${target.id}`,
+          type: "relation",
+          source: source.id,
+          target: target.id,
+          focusable: false,
+          interactionWidth: 0,
+          deletable: false,
+          zIndex: 0,
+          style: { pointerEvents: "none" },
+          data: { relationType, generated: true },
+        });
+      };
+
+      for (const node of sorted) {
+        const operation = node.data.operation;
+        const indexId = operation.indexId;
+
+        const isArrayAccess =
+          !!operation.addressId &&
+          memoryTypeById.get(operation.addressId) === "array" &&
+          !!indexId;
+
+        const needsAddressDependency =
+          isArrayAccess &&
+          (operation.type === "LOAD" || operation.type === "STORE") &&
+          !!indexId;
+
+        if (needsAddressDependency) {
+          const source =
+            lastLoadByProducedId.get(indexId) ?? lastLoadByAddressId.get(indexId);
+          if (source && source.data.sequenceIndex < node.data.sequenceIndex) {
+            pushDerived({ relationType: "ad", source, target: node });
+          }
+        }
+
+        if (operation.type === "BRANCH") {
+          const ids = new Set(
+            collectConditionVariableIds(operation.branchCondition).filter(Boolean)
+          );
+          for (const id of ids) {
+            const source =
+              lastLoadByProducedId.get(id) ?? lastLoadByAddressId.get(id);
+            if (source && source.data.sequenceIndex < node.data.sequenceIndex) {
+              pushDerived({ relationType: "cd", source, target: node });
+            }
+          }
+        }
+
+        if (operation.type === "STORE") {
+          const valueId = operation.valueId;
+          if (valueId) {
+            const source =
+              lastLoadByProducedId.get(valueId) ?? lastLoadByAddressId.get(valueId);
+            if (source && source.data.sequenceIndex < node.data.sequenceIndex) {
+              pushDerived({ relationType: "dd", source, target: node });
+            }
+          }
+        } else if (operation.type === "RMW") {
+          const valueIds = [operation.expectedValueId, operation.desiredValueId].filter(
+            (value): value is string => typeof value === "string" && value.length > 0
+          );
+          for (const valueId of valueIds) {
+            const source =
+              lastLoadByProducedId.get(valueId) ?? lastLoadByAddressId.get(valueId);
+            if (source && source.data.sequenceIndex < node.data.sequenceIndex) {
+              pushDerived({ relationType: "dd", source, target: node });
+            }
+          }
+        }
+
+        if (operation.type === "LOAD" && operation.addressId) {
+          lastLoadByAddressId.set(operation.addressId, node);
+          if (operation.resultId) {
+            lastLoadByProducedId.set(operation.resultId, node);
+          }
+        }
+      }
+    }
+
+    return derived;
+  }, [edges, memoryEnv, nodes]);
+
+  const edgesWithDerived = useMemo(() => {
+    const dependencyTypes = new Set(["ad", "cd", "dd"]);
+    const combined = [...addressDependencyEdges, ...relationEdges];
+    const deps: typeof combined = [];
+    const rest: typeof combined = [];
+
+    for (const edge of combined) {
+      const relationType = edge.data?.relationType ?? "po";
+      if (dependencyTypes.has(relationType)) {
+        deps.push(edge);
+      } else {
+        rest.push(edge);
+      }
+    }
+
+    return [...deps, ...rest];
+  }, [addressDependencyEdges, relationEdges]);
   const edgesToRender = useMemo(
     () =>
-      relationEdges.filter(
+      edgesWithDerived.filter(
         (edge) =>
           visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target)
       ),
-    [relationEdges, visibleNodeIds]
+    [edgesWithDerived, visibleNodeIds]
   );
 
   const threadsForLayout = useMemo(
@@ -338,6 +546,70 @@ const EditorCanvas = () => {
     },
     [deleteThread, nodeCountsByThread]
   );
+
+  const formatMemoryLabel = useCallback(
+    (item: MemoryVariable) => {
+      const base = item.name.trim() || item.id;
+      if (!item.parentId) {
+        return base;
+      }
+      const parent = memoryEnv.find((candidate) => candidate.id === item.parentId);
+      const parentLabel = parent ? parent.name.trim() || parent.id : "struct";
+      return `${parentLabel}.${base}`;
+    },
+    [memoryEnv]
+  );
+
+  const countVariableUsages = useCallback(
+    (id: string) => {
+      let count = 0;
+      for (const node of nodes) {
+        const op = node.data.operation;
+        if (op.addressId === id) count += 1;
+        if (op.indexId === id) count += 1;
+        if (op.valueId === id) count += 1;
+        if (op.resultId === id) count += 1;
+        if (op.expectedValueId === id) count += 1;
+        if (op.desiredValueId === id) count += 1;
+        if (op.type === "BRANCH") {
+          for (const variableId of collectConditionVariableIds(op.branchCondition)) {
+            if (variableId === id) {
+              count += 1;
+            }
+          }
+        }
+      }
+      return count;
+    },
+    [nodes]
+  );
+
+  const requestDeleteMemory = useCallback(
+    (item: MemoryVariable) => {
+      const usageCount = countVariableUsages(item.id);
+      if (usageCount <= 0) {
+        deleteMemoryVar(item.id);
+        return;
+      }
+      setPendingMemoryDelete({
+        id: item.id,
+        label: formatMemoryLabel(item),
+        usageCount,
+      });
+    },
+    [countVariableUsages, deleteMemoryVar, formatMemoryLabel]
+  );
+
+  const addLocalRegister = useCallback(() => {
+    const id = createMemoryId();
+    addMemoryVar({
+      id,
+      name: getNextRegisterName(memoryEnv),
+      type: "int",
+      scope: "locals",
+      value: "",
+    });
+  }, [addMemoryVar, memoryEnv]);
 
   const nextThreadId = useMemo(() => {
     const numericIds = threadsForLayout
@@ -475,9 +747,10 @@ const EditorCanvas = () => {
       const id = createMemoryId();
 
       if (memoryType === "int") {
+        const name = scope === "locals" ? getNextRegisterName(memoryEnv) : "";
         addMemoryVar({
           id,
-          name: "",
+          name,
           type: "int",
           scope,
           value: "",
@@ -494,7 +767,7 @@ const EditorCanvas = () => {
         });
       }
     },
-    [addMemoryVar]
+    [addMemoryVar, memoryEnv]
   );
 
   const handleNodeDragStop = useCallback(
@@ -680,6 +953,14 @@ const EditorCanvas = () => {
               updateMemoryVar(item.id, { name: event.target.value })
             }
           />
+          <button
+            type="button"
+            className="rounded border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+            aria-label={`Delete ${item.name.trim() || item.id}`}
+            onClick={() => requestDeleteMemory(item)}
+          >
+            ×
+          </button>
           {isArray ? (
             <input
               type="number"
@@ -730,6 +1011,14 @@ const EditorCanvas = () => {
               updateMemoryVar(item.id, { name: event.target.value })
             }
           />
+          <button
+            type="button"
+            className="rounded border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+            aria-label={`Delete ${item.name.trim() || item.id}`}
+            onClick={() => requestDeleteMemory(item)}
+          >
+            ×
+          </button>
         </div>
         <div className="mt-2 space-y-1">
           {members.length > 0 ? (
@@ -750,39 +1039,56 @@ const EditorCanvas = () => {
         <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
           Memory
         </div>
-        <div className="mt-3 grid grid-cols-3 gap-3">
-          {MEMORY_SECTIONS.map((section) => {
-            const sectionItems = memoryEnv.filter(
-              (item) => item.scope === section.scope && !item.parentId
-            );
+	        <div className="mt-3 grid grid-cols-3 gap-3">
+	          {MEMORY_SECTIONS.map((section) => {
+	            const sectionItems = memoryEnv.filter(
+	              (item) => item.scope === section.scope && !item.parentId
+	            );
+	            const isLocalRegisters = section.scope === "locals";
 
-            return (
-              <div
-                key={section.scope}
-                className="rounded border border-slate-200 bg-slate-50 p-2"
-                onDrop={(event) => handleMemoryDrop(event, section.scope)}
-                onDragOver={handleMemoryDragOver}
-              >
-                <div className="mb-2 text-[11px] font-semibold uppercase text-slate-500">
-                  {section.label}
-                </div>
-                <div className="space-y-2">
-                  {sectionItems.length > 0 ? (
-                    sectionItems.map((item) =>
-                      item.type === "struct"
-                        ? renderMemoryStruct(item)
-                        : renderMemoryAtom(item, false)
-                    )
-                  ) : (
-                    <div className="rounded border border-dashed border-slate-300 px-2 py-3 text-center text-xs text-slate-400">
-                      Drop int or array here
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+	            return (
+	              <div
+	                key={section.scope}
+	                className="rounded border border-slate-200 bg-slate-50 p-2"
+	                onDrop={
+	                  isLocalRegisters
+	                    ? undefined
+	                    : (event) => handleMemoryDrop(event, section.scope)
+	                }
+	                onDragOver={isLocalRegisters ? undefined : handleMemoryDragOver}
+	              >
+	                <div className="mb-2 flex items-center justify-between text-[11px] font-semibold uppercase text-slate-500">
+	                  <span>{section.label}</span>
+	                  {isLocalRegisters ? (
+	                    <button
+	                      type="button"
+	                      className="rounded border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+	                      onClick={addLocalRegister}
+	                      aria-label="Add local register"
+	                    >
+	                      +
+	                    </button>
+	                  ) : null}
+	                </div>
+	                <div className="space-y-2">
+	                  {sectionItems.length > 0 ? (
+	                    sectionItems.map((item) =>
+	                      item.type === "struct"
+	                        ? renderMemoryStruct(item)
+	                        : renderMemoryAtom(item, false)
+	                    )
+	                  ) : (
+	                    <div className="rounded border border-dashed border-slate-300 px-2 py-3 text-center text-xs text-slate-400">
+	                      {isLocalRegisters
+	                        ? "Use + to add registers"
+	                        : "Drop int or array here"}
+	                    </div>
+	                  )}
+	                </div>
+	              </div>
+	            );
+	          })}
+	        </div>
       </div>
       <div className="flex min-h-0 flex-1 flex-col bg-slate-100">
         <div className="min-h-0 flex-1 overflow-y-auto">
@@ -837,6 +1143,30 @@ const EditorCanvas = () => {
               nextThreadId={nextThreadId}
               nodeCountsByThread={nodeCountsByThread}
               onRequestDeleteThread={requestDeleteThread}
+            />
+            <ConfirmDialog
+              open={pendingMemoryDelete !== null}
+              title={
+                pendingMemoryDelete
+                  ? `Delete ${pendingMemoryDelete.label}?`
+                  : "Delete variable?"
+              }
+              description={
+                pendingMemoryDelete
+                  ? `This variable is referenced ${pendingMemoryDelete.usageCount} time(s). Deleting it will clear those fields in the affected operations.`
+                  : undefined
+              }
+              confirmLabel="Delete"
+              cancelLabel="Cancel"
+              tone="danger"
+              onCancel={() => setPendingMemoryDelete(null)}
+              onConfirm={() => {
+                if (!pendingMemoryDelete) {
+                  return;
+                }
+                deleteMemoryVar(pendingMemoryDelete.id);
+                setPendingMemoryDelete(null);
+              }}
             />
             <ConfirmDialog
               open={pendingThreadDelete !== null}

@@ -263,6 +263,9 @@ const coreRelationColors: Record<string, string> = {
   co: "#0284c7",
   fr: "#f97316",
   po: "#94a3b8",
+  ad: "#facc15",
+  dd: "#38bdf8",
+  cd: "#fb923c",
 };
 
 const hashString = (value: string) => {
@@ -302,6 +305,8 @@ const RelationEdge = ({
 
   const invalid = data?.invalid ?? false;
   const relationType = data?.relationType ?? "po";
+  const isDependencyBand =
+    relationType === "ad" || relationType === "cd" || relationType === "dd";
   const points = buildOrthogonalPoints({
     sourceX,
     sourceY,
@@ -317,6 +322,9 @@ const RelationEdge = ({
 
   const stroke = (style?.stroke as string) ?? getRelationColor(relationType);
   const isSelected = selected ?? false;
+  const bandStrokeWidth =
+    relationType === "ad" ? 14 : relationType === "cd" ? 12 : 12;
+  const bandOpacity = relationType === "ad" ? 0.25 : 0.22;
 
   return (
     <BaseEdge
@@ -327,8 +335,20 @@ const RelationEdge = ({
       style={{
         ...style,
         stroke: invalid ? "#ef4444" : stroke,
-        strokeWidth: invalid ? 2.5 : isSelected ? 2.75 : style?.strokeWidth ?? 1.75,
-        strokeDasharray: isSelected ? "5 4" : style?.strokeDasharray,
+        strokeWidth: isDependencyBand
+          ? bandStrokeWidth
+          : invalid
+            ? 2.5
+            : isSelected
+              ? 2.75
+              : style?.strokeWidth ?? 1.75,
+        opacity: isDependencyBand ? bandOpacity : style?.opacity,
+        strokeLinecap: isDependencyBand ? "round" : style?.strokeLinecap,
+        strokeDasharray: isSelected
+          ? "5 4"
+          : isDependencyBand
+            ? undefined
+            : style?.strokeDasharray,
       }}
     />
   );

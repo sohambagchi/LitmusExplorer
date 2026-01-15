@@ -7,6 +7,7 @@ import {
   type DragEvent,
 } from "react";
 import type {
+  BranchCondition,
   BranchGroupCondition,
   MemoryOrder,
   MemoryType,
@@ -52,19 +53,45 @@ const formatRelationTypeLabel = (relationType: RelationType) => {
       return "fr (from-read)";
     case "po":
       return "po (program order)";
+    case "ad":
+      return "ad (address dependency)";
+    case "dd":
+      return "dd (data dependency)";
+    case "cd":
+      return "cd (control dependency)";
     default:
       return relationType;
   }
+};
+
+const collectConditionVariableIds = (condition: BranchCondition | undefined) => {
+  if (!condition) {
+    return [];
+  }
+
+  if (condition.kind === "rule") {
+    const ids: string[] = [];
+    if (condition.lhsId) {
+      ids.push(condition.lhsId);
+    }
+    if (condition.rhsId) {
+      ids.push(condition.rhsId);
+    }
+    return ids;
+  }
+
+  const ids: string[] = [];
+  for (const item of condition.items) {
+    ids.push(...collectConditionVariableIds(item));
+  }
+  return ids;
 };
 
 const formatMemoryLabel = (
   item: MemoryVariable,
   memoryById: Map<string, MemoryVariable>
 ) => {
-  const name = item.name.trim();
-  if (!name) {
-    return "";
-  }
+  const name = item.name.trim() || item.id;
   if (!item.parentId) {
     return name;
   }
@@ -130,6 +157,8 @@ const Sidebar = () => {
 
   const updateSelectedOperation = (updates: {
     addressId?: string;
+    indexId?: string;
+    resultId?: string;
     valueId?: string;
     expectedValueId?: string;
     desiredValueId?: string;
@@ -326,6 +355,143 @@ const Sidebar = () => {
       .map((item) => ({ value: item.id, label: formatMemoryLabel(item, memoryById) }))
       .filter((option) => option.label);
   }, [memoryEnv]);
+
+  const intOptions = useMemo(() => {
+    const memoryById = new Map(memoryEnv.map((item) => [item.id, item]));
+    return memoryEnv
+      .filter((item) => item.type === "int")
+      .map((item) => ({ value: item.id, label: formatMemoryLabel(item, memoryById) }))
+      .filter((option) => option.label);
+  }, [memoryEnv]);
+
+  const localIntOptions = useMemo(() => {
+    const memoryById = new Map(memoryEnv.map((item) => [item.id, item]));
+    return memoryEnv
+      .filter((item) => item.type === "int" && item.scope === "locals")
+      .map((item) => ({ value: item.id, label: formatMemoryLabel(item, memoryById) }))
+      .filter((option) => option.label);
+  }, [memoryEnv]);
+
+  const memoryTypeById = useMemo(
+    () => new Map(memoryEnv.map((item) => [item.id, item.type] as const)),
+    [memoryEnv]
+  );
+
+  const memoryScopeById = useMemo(
+    () => new Map(memoryEnv.map((item) => [item.id, item.scope] as const)),
+    [memoryEnv]
+  );
+
+  const localOwners = useMemo(() => {
+    const localIds = new Set(
+      memoryEnv.filter((item) => item.scope === "locals").map((item) => item.id)
+    );
+    const usageById = new Map<string, Set<string>>();
+
+    const addUsage = (id: string | undefined, threadId: string) => {
+      if (!id || !localIds.has(id)) {
+        return;
+      }
+      const current = usageById.get(id) ?? new Set<string>();
+      current.add(threadId);
+      usageById.set(id, current);
+    };
+
+    for (const node of nodes) {
+      const threadId = node.data.threadId;
+      const operation = node.data.operation;
+      addUsage(operation.addressId, threadId);
+      addUsage(operation.indexId, threadId);
+      addUsage(operation.valueId, threadId);
+      addUsage(operation.resultId, threadId);
+      addUsage(operation.expectedValueId, threadId);
+      addUsage(operation.desiredValueId, threadId);
+      if (operation.type === "BRANCH") {
+        for (const id of collectConditionVariableIds(operation.branchCondition)) {
+          addUsage(id, threadId);
+        }
+      }
+    }
+
+    const ownerById = new Map<string, string>();
+    for (const [id, threads] of usageById) {
+      const sorted = Array.from(threads).sort((a, b) => a.localeCompare(b));
+      const owner = sorted[0];
+      if (owner) {
+        ownerById.set(id, owner);
+      }
+    }
+
+    return { ownerById };
+  }, [memoryEnv, nodes]);
+
+  const allowLocalForThread = useCallback(
+    (id: string | undefined, threadId: string | null) => {
+      if (!id || !threadId) {
+        return true;
+      }
+      if (memoryScopeById.get(id) !== "locals") {
+        return true;
+      }
+      const owner = localOwners.ownerById.get(id);
+      if (!owner) {
+        return true;
+      }
+      return owner === threadId;
+    },
+    [localOwners.ownerById, memoryScopeById]
+  );
+
+  const filterOptionsForThread = useCallback(
+    <T extends { value: string }>(options: T[], threadId: string | null) =>
+      options.filter((option) => allowLocalForThread(option.value, threadId)),
+    [allowLocalForThread]
+  );
+
+  const normalizeSelectionValue = useCallback(
+    (id: string | undefined, threadId: string | null) =>
+      allowLocalForThread(id, threadId) ? id ?? "" : "",
+    [allowLocalForThread]
+  );
+
+  useEffect(() => {
+    if (!selectedNode) {
+      return;
+    }
+    const threadId = selectedNode.data.threadId;
+    const operation = selectedNode.data.operation;
+
+    const maybeClearLocal = (id: string | undefined) => {
+      if (!id) {
+        return false;
+      }
+      if (memoryScopeById.get(id) !== "locals") {
+        return false;
+      }
+      const owner = localOwners.ownerById.get(id);
+      return !!owner && owner !== threadId;
+    };
+
+    const updates: {
+      addressId?: string;
+      indexId?: string;
+      resultId?: string;
+      valueId?: string;
+      expectedValueId?: string;
+      desiredValueId?: string;
+    } = {};
+
+    if (maybeClearLocal(operation.addressId)) updates.addressId = undefined;
+    if (maybeClearLocal(operation.indexId)) updates.indexId = undefined;
+    if (maybeClearLocal(operation.resultId)) updates.resultId = undefined;
+    if (maybeClearLocal(operation.valueId)) updates.valueId = undefined;
+    if (maybeClearLocal(operation.expectedValueId)) updates.expectedValueId = undefined;
+    if (maybeClearLocal(operation.desiredValueId)) updates.desiredValueId = undefined;
+
+    if (Object.keys(updates).length > 0) {
+      updateSelectedOperation(updates);
+    }
+  }, [localOwners.ownerById, memoryScopeById, selectedNode, updateSelectedOperation]);
 
   const selectedEdgeContext = useMemo(() => {
     if (!selectedEdge) {
@@ -598,8 +764,8 @@ const Sidebar = () => {
             Struct
           </button>
           <div className="text-xs text-slate-500">
-            Drag ints or arrays into Memory sections, then name them and set a
-            value or size. Select multiple items to enable Struct.
+            Drag ints or arrays into Constants/Shared. Use + in Local Registers.
+            Select multiple items to enable Struct.
           </div>
         </div>
       </section>
@@ -680,7 +846,10 @@ const Sidebar = () => {
                   </div>
                 </div>
                 <BranchConditionEditor
-                  memoryOptions={memoryOptions}
+                  memoryOptions={filterOptionsForThread(
+                    memoryOptions,
+                    selectedNode.data.threadId
+                  )}
                   value={selectedNode.data.operation.branchCondition}
                   onChange={(nextCondition) =>
                     updateSelectedOperation({ branchCondition: nextCondition })
@@ -691,74 +860,176 @@ const Sidebar = () => {
               <>
                 {selectedNode.data.operation.type === "LOAD" ||
                 selectedNode.data.operation.type === "STORE" ||
-                selectedNode.data.operation.type === "RMW" ? (
-                  <select
-                    className="w-full rounded border border-slate-300 px-2 py-1"
-                    value={selectedNode.data.operation.addressId ?? ""}
-                    onChange={(event) =>
-                      updateSelectedOperation({
-                        addressId: event.target.value || undefined,
+	                selectedNode.data.operation.type === "RMW" ? (
+	                  <select
+	                    className="w-full rounded border border-slate-300 px-2 py-1"
+	                    value={normalizeSelectionValue(
+	                      selectedNode.data.operation.addressId,
+	                      selectedNode.data.threadId
+	                    )}
+	                    onChange={(event) =>
+	                      updateSelectedOperation({
+	                        addressId: event.target.value || undefined,
+	                        indexId:
+                          event.target.value &&
+                          memoryTypeById.get(event.target.value) === "array"
+                            ? selectedNode.data.operation.indexId
+                            : undefined,
                       })
                     }
-                  >
-                    <option value="">Variable</option>
-                    {memoryOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
+	                  >
+	                    <option value="">Variable</option>
+	                    {filterOptionsForThread(
+	                      memoryOptions,
+	                      selectedNode.data.threadId
+	                    ).map((option) => (
+	                      <option key={option.value} value={option.value}>
+	                        {option.label}
+	                      </option>
+	                    ))}
+	                  </select>
+	                ) : null}
+
+	                {selectedNode.data.operation.type === "LOAD" ? (
+	                  <select
+	                    className="w-full rounded border border-slate-300 px-2 py-1"
+	                    value={normalizeSelectionValue(
+	                      selectedNode.data.operation.resultId,
+	                      selectedNode.data.threadId
+	                    )}
+	                    onChange={(event) =>
+	                      updateSelectedOperation({
+	                        resultId: event.target.value || undefined,
+	                      })
+	                    }
+	                  >
+	                    <option value="">Result variable</option>
+	                    {filterOptionsForThread(
+	                      localIntOptions,
+	                      selectedNode.data.threadId
+	                    ).map((option) => (
+	                      <option key={option.value} value={option.value}>
+	                        {option.label}
+	                      </option>
+	                    ))}
+	                  </select>
+	                ) : null}
+
+                {selectedNode.data.operation.type === "LOAD" ||
+                selectedNode.data.operation.type === "STORE" ? (
+                  selectedNode.data.operation.addressId &&
+                  memoryTypeById.get(selectedNode.data.operation.addressId) ===
+                    "array" ? (
+	                    <select
+	                      className="w-full rounded border border-slate-300 px-2 py-1"
+	                      value={normalizeSelectionValue(
+	                        selectedNode.data.operation.indexId,
+	                        selectedNode.data.threadId
+	                      )}
+	                      onChange={(event) =>
+	                        updateSelectedOperation({
+	                          indexId: event.target.value || undefined,
+	                        })
+	                      }
+	                    >
+	                      <option value="">Index variable</option>
+	                      {filterOptionsForThread(
+	                        intOptions,
+	                        selectedNode.data.threadId
+	                      ).map((option) => (
+	                        <option key={option.value} value={option.value}>
+	                          {option.label}
+	                        </option>
+	                      ))}
+	                    </select>
+                  ) : null
                 ) : null}
 
                 {selectedNode.data.operation.type === "STORE" ? (
-                  <input
-                    className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
-                    placeholder="Value"
-                    value={
-                      selectedNode.data.operation.value !== undefined
-                        ? String(selectedNode.data.operation.value)
-                        : ""
-                    }
-                    onChange={(event) =>
-                      updateSelectedOperation({ value: event.target.value })
-                    }
-                  />
+                  <>
+	                    <select
+	                      className="w-full rounded border border-slate-300 px-2 py-1"
+	                      value={normalizeSelectionValue(
+	                        selectedNode.data.operation.valueId,
+	                        selectedNode.data.threadId
+	                      )}
+	                      onChange={(event) =>
+	                        updateSelectedOperation({
+	                          valueId: event.target.value || undefined,
+	                        })
+	                      }
+	                    >
+	                      <option value="">Value variable</option>
+	                      {filterOptionsForThread(
+	                        intOptions,
+	                        selectedNode.data.threadId
+	                      ).map((option) => (
+	                        <option key={option.value} value={option.value}>
+	                          {option.label}
+	                        </option>
+	                      ))}
+	                    </select>
+                    <input
+                      className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
+                      placeholder="Value"
+                      value={
+                        selectedNode.data.operation.value !== undefined
+                          ? String(selectedNode.data.operation.value)
+                          : ""
+                      }
+                      onChange={(event) =>
+                        updateSelectedOperation({ value: event.target.value })
+                      }
+                    />
+                  </>
                 ) : null}
 
                 {selectedNode.data.operation.type === "RMW" ? (
                   <>
-                    <select
-                      className="w-full rounded border border-slate-300 px-2 py-1"
-                      value={selectedNode.data.operation.expectedValueId ?? ""}
-                      onChange={(event) =>
-                        updateSelectedOperation({
-                          expectedValueId: event.target.value || undefined,
-                        })
-                      }
-                    >
-                      <option value="">Expected Value</option>
-                      {memoryOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      className="w-full rounded border border-slate-300 px-2 py-1"
-                      value={selectedNode.data.operation.desiredValueId ?? ""}
-                      onChange={(event) =>
-                        updateSelectedOperation({
-                          desiredValueId: event.target.value || undefined,
-                        })
-                      }
-                    >
-                      <option value="">Desired Value</option>
-                      {memoryOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
+	                    <select
+	                      className="w-full rounded border border-slate-300 px-2 py-1"
+	                      value={normalizeSelectionValue(
+	                        selectedNode.data.operation.expectedValueId,
+	                        selectedNode.data.threadId
+	                      )}
+	                      onChange={(event) =>
+	                        updateSelectedOperation({
+	                          expectedValueId: event.target.value || undefined,
+	                        })
+	                      }
+	                    >
+	                      <option value="">Expected Value</option>
+	                      {filterOptionsForThread(
+	                        memoryOptions,
+	                        selectedNode.data.threadId
+	                      ).map((option) => (
+	                        <option key={option.value} value={option.value}>
+	                          {option.label}
+	                        </option>
+	                      ))}
+	                    </select>
+	                    <select
+	                      className="w-full rounded border border-slate-300 px-2 py-1"
+	                      value={normalizeSelectionValue(
+	                        selectedNode.data.operation.desiredValueId,
+	                        selectedNode.data.threadId
+	                      )}
+	                      onChange={(event) =>
+	                        updateSelectedOperation({
+	                          desiredValueId: event.target.value || undefined,
+	                        })
+	                      }
+	                    >
+	                      <option value="">Desired Value</option>
+	                      {filterOptionsForThread(
+	                        memoryOptions,
+	                        selectedNode.data.threadId
+	                      ).map((option) => (
+	                        <option key={option.value} value={option.value}>
+	                          {option.label}
+	                        </option>
+	                      ))}
+	                    </select>
                     <select
                       className="w-full rounded border border-slate-300 px-2 py-1"
                       value={selectedNode.data.operation.successMemoryOrder ?? ""}

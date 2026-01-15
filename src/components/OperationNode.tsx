@@ -80,7 +80,18 @@ const OperationNode = ({ data, selected }: NodeProps<TraceNodeData>) => {
     const resolvedAddress = op.addressId
       ? formatMemoryLabel(memoryById.get(op.addressId), memoryById)
       : "";
-    const addressLabel = resolvedAddress || op.address || "";
+    const baseAddressLabel = resolvedAddress || op.address || "";
+    const isArrayAddress = op.addressId
+      ? memoryById.get(op.addressId)?.type === "array"
+      : false;
+    const resolvedIndex = op.indexId
+      ? formatMemoryLabel(memoryById.get(op.indexId), memoryById)
+      : "";
+    const indexLabel = resolvedIndex || op.index || "";
+    const addressLabel =
+      isArrayAddress && baseAddressLabel && indexLabel
+        ? `${baseAddressLabel}[${indexLabel}]`
+        : baseAddressLabel;
     const baseOrder = op.memoryOrder ? ` (${getOrderShort(op.memoryOrder)})` : "";
 
     if (op.text) {
@@ -93,7 +104,13 @@ const OperationNode = ({ data, selected }: NodeProps<TraceNodeData>) => {
 
     if (op.type === "LOAD") {
       const address = addressLabel ? ` ${addressLabel}` : "";
-      return `${opLabel}${address}${baseOrder}`;
+      const resolvedResult = op.resultId
+        ? formatMemoryLabel(memoryById.get(op.resultId), memoryById)
+        : "";
+      const resultLabel = resolvedResult || "";
+      return resultLabel
+        ? `${resultLabel} = ${opLabel}${address}${baseOrder}`
+        : `${opLabel}${address}${baseOrder}`;
     }
 
     if (op.type === "STORE") {

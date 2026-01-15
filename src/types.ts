@@ -73,10 +73,13 @@ export type BranchCondition = BranchRuleCondition | BranchGroupCondition;
 export type Operation = {
   type: OperationType;
   addressId?: string;
+  indexId?: string;
+  resultId?: string;
   valueId?: string;
   expectedValueId?: string;
   desiredValueId?: string;
   address?: string;
+  index?: string;
   value?: string | number;
   memoryOrder?: MemoryOrder;
   successMemoryOrder?: MemoryOrder;
@@ -96,13 +99,14 @@ export type TraceNodeData = {
 
 export type TraceNode = Node<TraceNodeData>;
 
-export const DEFAULT_RELATION_TYPES = ["rf", "co", "fr", "po"] as const;
+export const DEFAULT_RELATION_TYPES = ["rf", "co", "fr", "po", "ad", "cd", "dd"] as const;
 export type DefaultRelationType = (typeof DEFAULT_RELATION_TYPES)[number];
 export type RelationType = string;
 
 export type RelationEdgeData = {
   relationType: RelationType;
   invalid?: boolean;
+  generated?: boolean;
 };
 
 export type RelationEdge = Edge<RelationEdgeData>;

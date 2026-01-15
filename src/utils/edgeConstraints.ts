@@ -26,15 +26,30 @@ const resolveNodeAddressLabel = (
   memoryById: Map<string, MemoryVariable>
 ): string | null => {
   const addressId = node.data.operation.addressId;
+  const indexId = node.data.operation.indexId;
   if (addressId) {
     const item = memoryById.get(addressId);
-    if (item) {
-      return formatMemoryLabel(item, memoryById);
+    const baseLabel = item ? formatMemoryLabel(item, memoryById) : addressId;
+    const resolvedIndexItem = indexId ? memoryById.get(indexId) : undefined;
+    const resolvedIndex = resolvedIndexItem
+      ? formatMemoryLabel(resolvedIndexItem, memoryById)
+      : "";
+    const indexLabel = resolvedIndex || node.data.operation.index?.trim() || "";
+    if (indexLabel && (item?.type === "array" || indexId || node.data.operation.index)) {
+      return `${baseLabel}[${indexLabel}]`;
     }
-    return addressId;
+    return baseLabel;
   }
   const address = node.data.operation.address?.trim();
-  return address ? address : null;
+  if (!address) {
+    return null;
+  }
+  const resolvedIndexItem = indexId ? memoryById.get(indexId) : undefined;
+  const resolvedIndex = resolvedIndexItem
+    ? formatMemoryLabel(resolvedIndexItem, memoryById)
+    : "";
+  const indexLabel = resolvedIndex || node.data.operation.index?.trim() || "";
+  return indexLabel ? `${address}[${indexLabel}]` : address;
 };
 
 export const checkEdgeConstraints = ({
@@ -58,6 +73,24 @@ export const checkEdgeConstraints = ({
       allowed: false,
       reason: "Program-order edges must stay within a single thread.",
     };
+  }
+
+  if (relationType === "ad" && !sameThread) {
+    return {
+      allowed: false,
+      reason: "Address-dependency edges must stay within a single thread.",
+    };
+  }
+
+  if ((relationType === "cd" || relationType === "dd") && !sameThread) {
+    return {
+      allowed: false,
+      reason: "Dependency edges must stay within a single thread.",
+    };
+  }
+
+  if (sameThread) {
+    return { allowed: true };
   }
 
   if (!perLocationRelations.has(relationType)) {

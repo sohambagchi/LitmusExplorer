@@ -7,6 +7,7 @@ import { evaluateBranchCondition } from "../utils/branchEvaluation";
 const BranchNode = ({ id, data, selected }: NodeProps<TraceNodeData>) => {
   const memoryEnv = useStore((state) => state.memoryEnv);
   const setNodes = useStore((state) => state.setNodes);
+  const showAllNodes = useStore((state) => state.showAllNodes);
 
   const condition = data.operation.branchCondition;
   const evaluatedPath = useMemo<BranchPath>(() => {
@@ -21,7 +22,11 @@ const BranchNode = ({ id, data, selected }: NodeProps<TraceNodeData>) => {
     [data.operation.text]
   );
 
-  const showBothFutures = data.operation.branchShowBothFutures ?? false;
+  /**
+   * "Both" defaults to enabled to avoid surprising disappearing nodes.
+   * Users can explicitly disable it per branch when they want evaluation-driven visibility.
+   */
+  const showBothFutures = data.operation.branchShowBothFutures ?? true;
 
   return (
     <div className="relative h-14 w-14 text-[10px] text-slate-900">
@@ -80,11 +85,16 @@ const BranchNode = ({ id, data, selected }: NodeProps<TraceNodeData>) => {
         </div>
         <button
           type="button"
-          className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ${
-            showBothFutures ? "bg-slate-800 text-white" : "bg-slate-200 text-slate-800"
+          className={`rounded px-1.5 py-0.5 text-[9px] font-semibold disabled:cursor-not-allowed disabled:opacity-60 ${
+            showBothFutures
+              ? "bg-slate-800 text-white"
+              : "bg-slate-200 text-slate-800"
           }`}
           onClick={(event) => {
             event.stopPropagation();
+            if (showAllNodes) {
+              return;
+            }
             setNodes((current) =>
               current.map((node) => {
                 if (node.id !== id) {
@@ -103,7 +113,12 @@ const BranchNode = ({ id, data, selected }: NodeProps<TraceNodeData>) => {
               })
             );
           }}
-          title="Show both futures"
+          disabled={showAllNodes}
+          title={
+            showAllNodes
+              ? "Disabled while Show all is enabled"
+              : "Show both futures"
+          }
         >
           Both
         </button>

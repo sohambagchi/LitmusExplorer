@@ -334,6 +334,8 @@ const EditorCanvas = () => {
   const toggleMemorySelection = useStore(
     (state) => state.toggleMemorySelection
   );
+  const showAllNodes = useStore((state) => state.showAllNodes);
+  const toggleShowAllNodes = useStore((state) => state.toggleShowAllNodes);
   const sessionTitle = useStore((state) => state.sessionTitle);
   const reactFlowInstance = useRef<ReactFlowInstance | null>(null);
   const reactFlowWrapperRef = useRef<HTMLDivElement | null>(null);
@@ -357,6 +359,14 @@ const EditorCanvas = () => {
   const edgeTypes = useMemo(() => ({ relation: RelationEdgeComponent }), []);
 
   const visibleNodes = useMemo(() => {
+    /**
+     * Global override: when enabled, we render every node regardless of the
+     * evaluated outcome of any BRANCH node (and regardless of per-branch "Both").
+     */
+    if (showAllNodes) {
+      return nodes;
+    }
+
     const nodesById = new Map(nodes.map((node) => [node.id, node]));
 
     const poOutgoing = new Map<string, string[]>();
@@ -393,7 +403,11 @@ const EditorCanvas = () => {
     );
 
     for (const branchNode of branchNodes) {
-      if (branchNode.data.operation.branchShowBothFutures) {
+      /**
+       * Default behavior is to show both paths unless the user explicitly
+       * disables it for a given branch.
+       */
+      if (branchNode.data.operation.branchShowBothFutures ?? true) {
         continue;
       }
       const branchId = branchNode.id;
@@ -444,7 +458,7 @@ const EditorCanvas = () => {
     }
 
     return nodes.filter((node) => !hidden.has(node.id));
-  }, [edges, memoryEnv, nodes]);
+  }, [edges, memoryEnv, nodes, showAllNodes]);
 
   const visibleNodeIds = useMemo(
     () => new Set(visibleNodes.map((node) => node.id)),
@@ -1049,7 +1063,10 @@ const EditorCanvas = () => {
           operation: {
             type: operationType as TraceNode["data"]["operation"]["type"],
             ...(operationType === "BRANCH"
-              ? { branchCondition: createBranchGroupCondition() }
+              ? {
+                  branchCondition: createBranchGroupCondition(),
+                  branchShowBothFutures: true,
+                }
               : null),
           },
         },
@@ -1464,6 +1481,19 @@ const EditorCanvas = () => {
                 : edgeLabelMode === "nonPo"
                   ? "Relations"
                   : "Off"}
+            </button>
+            <button
+              type="button"
+              className={`rounded px-2 py-1 text-xs font-semibold ${
+                showAllNodes
+                  ? "bg-slate-900 text-white"
+                  : "border border-slate-200 bg-white text-slate-700"
+              }`}
+              onClick={toggleShowAllNodes}
+              aria-pressed={showAllNodes}
+              title="Force all nodes visible (ignores branch evaluations)"
+            >
+              Show all
             </button>
             <button
               type="button"

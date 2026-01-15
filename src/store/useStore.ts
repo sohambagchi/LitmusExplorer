@@ -57,6 +57,11 @@ type StoreState = {
   edges: RelationEdge[];
   memoryEnv: MemoryVariable[];
   /**
+   * When enabled, the canvas forces every node visible regardless of branch evaluation.
+   * This is a purely UI-level override and is intentionally not part of session snapshots.
+   */
+  showAllNodes: boolean;
+  /**
    * Fingerprint of the last "saved" state (export/import/new).
    * Used by UI affordances that need to warn before discarding changes.
    */
@@ -73,6 +78,10 @@ type StoreState = {
     definitions: Array<{ name: string; fileName: string; body: string }>;
     error: string | null;
   };
+  /**
+   * Toggles `showAllNodes` on/off.
+   */
+  toggleShowAllNodes: () => void;
   setSessionTitle: (title: string) => void;
   setModelConfig: (updates: Partial<SessionModelConfig>) => void;
   resetModelConfig: () => void;
@@ -270,6 +279,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   nodes: [],
   edges: [],
   memoryEnv: createDefaultMemoryEnv(),
+  showAllNodes: false,
   savedSessionFingerprint: createSavedFingerprint({
     title: "",
     modelConfig: createDefaultModelConfig(),
@@ -287,6 +297,10 @@ export const useStore = create<StoreState>()((set, get) => ({
   edgeLabelMode: "nonPo",
   focusedEdgeLabelId: null,
   catModel: { filesByName: {}, analysis: null, definitions: [], error: null },
+  toggleShowAllNodes: () =>
+    set((state) => ({
+      showAllNodes: !state.showAllNodes,
+    })),
   setSessionTitle: (title) => set({ sessionTitle: title }),
   setModelConfig: (updates) =>
     set((state) => ({
@@ -729,6 +743,7 @@ export const useStore = create<StoreState>()((set, get) => ({
         nodes,
         edges,
         memoryEnv,
+        showAllNodes: false,
         savedSessionFingerprint: createSavedFingerprint({
           title: sessionTitle,
           modelConfig,
@@ -772,6 +787,7 @@ export const useStore = create<StoreState>()((set, get) => ({
       nodes: normalized.nodes,
       edges,
       memoryEnv,
+      showAllNodes: false,
       savedSessionFingerprint: createSavedFingerprint({
         title: sessionTitle,
         modelConfig,

@@ -141,7 +141,7 @@
       "targetHandle": null,
       "id": "edge-1768443698663-eead7f4a32eb18",
       "type": "relation",
-      "data": { "relationType": "rf", "invalid": false },
+      "data": { "relationType": "fr", "invalid": false },
       "selected": false
     },
     {
@@ -151,7 +151,7 @@
       "targetHandle": null,
       "id": "edge-1768443701333-02b6fc3ee2d618",
       "type": "relation",
-      "data": { "relationType": "fr", "invalid": false },
+      "data": { "relationType": "rf", "invalid": false },
       "selected": false
     }
   ],

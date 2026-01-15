@@ -26,6 +26,29 @@ const getOrderColorClass = (order: string | undefined) => {
   }
 };
 
+/**
+ * Returns a stable hex color for a memory-order label.
+ * Used for CAS/RMW nodes where we split the background into two halves.
+ */
+const getOrderColorHex = (order: string | undefined) => {
+  switch (order) {
+    case "Acquire":
+      return "#fecaca"; // tailwind red-200
+    case "Release":
+      return "#bfdbfe"; // tailwind blue-200
+    case "Relaxed":
+      return "#a7f3d0"; // tailwind emerald-200
+    case "Acq_Rel":
+      return "#e9d5ff"; // tailwind purple-200
+    case "SC":
+      return "#fde68a"; // tailwind amber-200
+    case "Standard":
+      return "#e2e8f0"; // tailwind slate-200
+    default:
+      return "#e2e8f0"; // tailwind slate-200
+  }
+};
+
 const opLabels: Record<OperationType, string> = {
   LOAD: "LD",
   STORE: "ST",
@@ -127,6 +150,10 @@ const OperationNode = ({ data, selected }: NodeProps<TraceNodeData>) => {
 
     if (op.type === "RMW") {
       const address = addressLabel ? ` ${addressLabel}` : "";
+      const resolvedResult = op.resultId
+        ? formatMemoryLabel(memoryById.get(op.resultId), memoryById)
+        : "";
+      const resultLabel = resolvedResult || "";
       const expected = op.expectedValueId
         ? formatMemoryLabel(memoryById.get(op.expectedValueId), memoryById)
         : "";
@@ -146,17 +173,32 @@ const OperationNode = ({ data, selected }: NodeProps<TraceNodeData>) => {
           ? ` [${successOrder || "?"}/${failureOrder || "?"}]`
           : "";
 
-      return `CAS${address}${casValues}${casOrders}`;
+      return resultLabel
+        ? `${resultLabel} = CAS${address}${casValues}${casOrders}`
+        : `CAS${address}${casValues}${casOrders}`;
     }
 
     const address = addressLabel ? ` ${addressLabel}` : "";
     return `${opLabel}${address}${baseOrder}`;
   }, [data.operation, memoryById]);
 
+  const casBackgroundStyle =
+    data.operation.type === "RMW"
+      ? {
+          backgroundImage: `linear-gradient(90deg, ${getOrderColorHex(
+            data.operation.successMemoryOrder
+          )} 0%, ${getOrderColorHex(
+            data.operation.successMemoryOrder
+          )} 50%, ${getOrderColorHex(
+            data.operation.failureMemoryOrder
+          )} 50%, ${getOrderColorHex(data.operation.failureMemoryOrder)} 100%)`,
+        }
+      : undefined;
   const colorClass = getOrderColorClass(data.operation.memoryOrder);
 
   return (
     <div
+      style={casBackgroundStyle}
       className={`min-w-[110px] rounded-md border border-slate-400 px-2 py-1.5 text-[11px] text-slate-900 shadow-sm ${colorClass} ${
         selected ? "ring-2 ring-slate-600" : ""
       }`}

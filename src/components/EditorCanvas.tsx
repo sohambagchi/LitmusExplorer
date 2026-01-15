@@ -576,7 +576,10 @@ const EditorCanvas = () => {
           }
         }
 
-        if (operation.type === "LOAD" && operation.addressId) {
+        if (
+          (operation.type === "LOAD" || operation.type === "RMW") &&
+          operation.addressId
+        ) {
           lastLoadByAddressId.set(operation.addressId, node);
           if (operation.resultId) {
             lastLoadByProducedId.set(operation.resultId, node);

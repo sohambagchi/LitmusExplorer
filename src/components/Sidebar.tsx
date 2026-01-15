@@ -1087,30 +1087,55 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
 	                  </select>
 	                ) : null}
 
-	                {selectedNode.data.operation.type === "LOAD" ? (
-	                  <select
-	                    className="w-full rounded border border-slate-300 px-2 py-1"
-	                    value={normalizeSelectionValue(
-	                      selectedNode.data.operation.resultId,
-	                      selectedNode.data.threadId
-	                    )}
-	                    onChange={(event) =>
-	                      updateSelectedOperation({
-	                        resultId: event.target.value || undefined,
-	                      })
-	                    }
-	                  >
-	                    <option value="">Result variable</option>
-	                    {filterOptionsForThread(
-	                      localIntOptions,
-	                      selectedNode.data.threadId
-	                    ).map((option) => (
-	                      <option key={option.value} value={option.value}>
-	                        {option.label}
-	                      </option>
-	                    ))}
-	                  </select>
-	                ) : null}
+                {selectedNode.data.operation.type === "LOAD" ? (
+                  <select
+                    className="w-full rounded border border-slate-300 px-2 py-1"
+                    value={normalizeSelectionValue(
+                      selectedNode.data.operation.resultId,
+                      selectedNode.data.threadId
+                    )}
+                    onChange={(event) =>
+                      updateSelectedOperation({
+                        resultId: event.target.value || undefined,
+                      })
+                    }
+                  >
+                    <option value="">Result variable</option>
+                    {filterOptionsForThread(
+                      localIntOptions,
+                      selectedNode.data.threadId
+                    ).map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+
+                {selectedNode.data.operation.type === "RMW" ? (
+                  <select
+                    className="w-full rounded border border-slate-300 px-2 py-1"
+                    value={normalizeSelectionValue(
+                      selectedNode.data.operation.resultId,
+                      selectedNode.data.threadId
+                    )}
+                    onChange={(event) =>
+                      updateSelectedOperation({
+                        resultId: event.target.value || undefined,
+                      })
+                    }
+                  >
+                    <option value="">Result variable</option>
+                    {filterOptionsForThread(
+                      localIntOptions,
+                      selectedNode.data.threadId
+                    ).map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
 
                 {selectedNode.data.operation.type === "LOAD" ||
                 selectedNode.data.operation.type === "STORE" ? (

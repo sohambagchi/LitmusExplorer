@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Share2 } from "lucide-react";
+import { Menu, Share2 } from "lucide-react";
 import EditorCanvas from "./components/EditorCanvas";
 import Sidebar from "./components/Sidebar";
 import SessionTitleDialog from "./components/SessionTitleDialog";
@@ -10,6 +10,7 @@ import { createShare, fetchSharedSnapshot } from "./share/shareApi";
 import { createUuid } from "./utils/createUuid";
 import { isUuid } from "./utils/isUuid";
 import { parseSessionSnapshot } from "./session/parseSessionSnapshot";
+import { useMediaQuery } from "./utils/useMediaQuery";
 import messagePassingSessionRaw from "../tests/session-samples/message-passing.json";
 
 const defaultSessionSnapshot = (() => {
@@ -22,6 +23,13 @@ const defaultSessionSnapshot = (() => {
 })();
 
 const App = () => {
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return true;
+    }
+    return window.matchMedia("(min-width: 1024px)").matches;
+  });
   const [sharedSessionId, setSharedSessionId] = useState<string | null>(() => {
     if (typeof window === "undefined") {
       return null;
@@ -168,6 +176,32 @@ const App = () => {
     };
   }, [importSession, sharedSessionId]);
 
+  /**
+   * Keep the sidebar "docked open" on desktop and closed-by-default on phones.
+   * This runs after the first render so the initial value can be derived from
+   * `matchMedia` without a layout flash.
+   */
+  useEffect(() => {
+    setIsSidebarOpen(isDesktop);
+  }, [isDesktop]);
+
+  useEffect(() => {
+    if (isDesktop || !isSidebarOpen) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsSidebarOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isDesktop, isSidebarOpen]);
+
   useEffect(() => {
     if (sharedSessionId) {
       return;
@@ -184,47 +218,91 @@ const App = () => {
   }, [importSession, nodes.length, sharedSessionId]);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-slate-100 text-slate-900">
-      <Sidebar onNewSession={handleNewSession} />
+    <div className="flex h-dvh w-dvw overflow-hidden bg-slate-100 text-slate-900">
+      {isDesktop ? (
+        <Sidebar onNewSession={handleNewSession} />
+      ) : (
+        <>
+          {isSidebarOpen ? (
+            <div
+              className="fixed inset-0 z-40 bg-slate-900/30"
+              role="button"
+              tabIndex={0}
+              aria-label="Close sidebar overlay"
+              onClick={() => setIsSidebarOpen(false)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  setIsSidebarOpen(false);
+                }
+              }}
+            />
+          ) : null}
+          <div className="fixed inset-y-0 left-0 z-50">
+            <Sidebar
+              onNewSession={handleNewSession}
+              variant="drawer"
+              open={isSidebarOpen}
+              onRequestClose={() => setIsSidebarOpen(false)}
+            />
+          </div>
+        </>
+      )}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-3">
-          <div>
-            <div className="text-sm font-semibold tracking-wide">
-              Litmus Explorer
+        <header className="flex flex-col gap-2 border-b border-slate-200 bg-white px-3 py-2 sm:px-6 sm:py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <button
+                type="button"
+                className="inline-flex h-9 w-9 flex-none items-center justify-center rounded border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-1 lg:hidden"
+                onClick={() => setIsSidebarOpen(true)}
+                aria-label="Open sidebar"
+              >
+                <Menu className="h-4 w-4" aria-hidden="true" />
+              </button>
+              <div className="min-w-0">
+                <div className="text-sm font-semibold tracking-wide">
+                  Litmus Explorer
+                </div>
+                <div className="hidden text-xs text-slate-500 sm:block">
+                  Drag operations, connect relations, and collapse branches.
+                </div>
+              </div>
             </div>
-            <div className="text-xs text-slate-500">
-              Drag operations, connect relations, and collapse branches.
+            <div className="flex flex-none items-center gap-2 sm:gap-4">
+              <button
+                type="button"
+                className="inline-flex items-center gap-2 rounded border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-60 sm:px-3"
+                onClick={handleShare}
+                disabled={shareLoading}
+              >
+                <Share2 className="h-4 w-4" aria-hidden="true" />
+                <span className="hidden sm:inline">
+                  {shareLoading ? "Sharing…" : "Share"}
+                </span>
+              </button>
+              <button
+                type="button"
+                className="rounded bg-slate-900 px-2 py-1.5 text-xs font-semibold text-white sm:px-3"
+                onClick={validateGraph}
+              >
+                <span className="hidden sm:inline">Validate Graph</span>
+                <span className="sm:hidden">Validate</span>
+              </button>
             </div>
           </div>
-          <div className="flex items-center gap-4">
-            <div className="max-w-[28rem] truncate text-xs font-medium text-slate-700">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+            <div className="max-w-full truncate text-xs font-medium text-slate-700 sm:max-w-[28rem]">
               <span className="text-slate-500">Session:</span>{" "}
               {sessionTitle ? sessionTitle : "Untitled"}
             </div>
             {shareError ? (
-              <div className="max-w-[20rem] truncate text-xs text-rose-600">
+              <div className="max-w-full truncate text-xs text-rose-600 sm:max-w-[20rem]">
                 {shareError}
               </div>
             ) : null}
-            <button
-              type="button"
-              className="inline-flex items-center gap-2 rounded border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-              onClick={handleShare}
-              disabled={shareLoading}
-            >
-              <Share2 className="h-4 w-4" aria-hidden="true" />
-              {shareLoading ? "Sharing…" : "Share"}
-            </button>
-            <button
-              type="button"
-              className="rounded bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
-              onClick={validateGraph}
-            >
-              Validate Graph
-            </button>
           </div>
         </header>
-        <main className="flex-1">
+        <main className="min-h-0 flex-1">
           {sharedSessionId && sharedLoadPending ? (
             <div className="flex h-full items-center justify-center px-6 text-sm text-slate-600">
               Loading shared session…

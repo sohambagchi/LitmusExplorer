@@ -1804,7 +1804,7 @@ const EditorCanvas = () => {
   return (
     <div className="flex h-full w-full flex-col">
       <div
-        className={`border-b border-slate-200 bg-white px-4 ${
+        className={`border-b border-slate-200 bg-white px-3 sm:px-4 ${
           isMemoryCollapsed ? "py-2" : "py-3"
         }`}
       >
@@ -1832,7 +1832,7 @@ const EditorCanvas = () => {
         {isMemoryCollapsed ? null : (
           <div
             id="memory-section-body"
-            className="mt-3 grid grid-cols-3 gap-3"
+            className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
           >
             {MEMORY_SECTIONS.map((section) => {
               const sectionItems = memoryEnv.filter(
@@ -1919,7 +1919,7 @@ const EditorCanvas = () => {
 	                  edgeTypes={edgeTypes}
 	                  nodeOrigin={CANVAS_NODE_ORIGIN}
 	                  connectionLineType={ConnectionLineType.Step}
-	                  panOnDrag={false}
+	                  panOnDrag
 	                  zoomOnScroll={false}
 	                  translateExtent={translateExtent}
 	                  nodeExtent={translateExtent}
@@ -2029,74 +2029,82 @@ const EditorCanvas = () => {
             />
           </div>
         </div>
-        <div className="flex items-center justify-between border-t border-slate-200 bg-white px-3 py-2">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className="rounded border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700"
-              onClick={handleAddThread}
-            >
-              + Thread
-            </button>
-            <button
-              type="button"
-              aria-label="Zoom out"
-              className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-sm font-semibold leading-none text-slate-700"
-              onClick={() => handleZoom(-0.1)}
-            >
-              -
-            </button>
-            <button
-              type="button"
-              aria-label="Zoom in"
-              className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-sm font-semibold leading-none text-slate-700"
-              onClick={() => handleZoom(0.1)}
-            >
-              +
-            </button>
-            <button
-              type="button"
-              className="rounded border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700"
-              onClick={handleFitView}
-            >
-              Fit
-            </button>
-            <button
-              type="button"
-              className="rounded border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700"
-              onClick={cycleEdgeLabelMode}
-              aria-label="Cycle edge label mode"
-            >
-              Labels:{" "}
-              {edgeLabelMode === "all"
-                ? "All"
-                : edgeLabelMode === "nonPo"
-                  ? "Relations"
-                  : "Off"}
-            </button>
-            <button
-              type="button"
-              className={`rounded px-2 py-1 text-xs font-semibold ${
-                showAllNodes
-                  ? "bg-slate-900 text-white"
-                  : "border border-slate-200 bg-white text-slate-700"
-              }`}
-              onClick={toggleShowAllNodes}
-              aria-pressed={showAllNodes}
-              title="Force all nodes visible (ignores branch evaluations)"
-            >
-              Show all
-            </button>
+        <div className="flex items-center justify-between gap-2 border-t border-slate-200 bg-white px-2 py-2 sm:px-3">
+          <div className="min-w-0 flex-1 overflow-x-auto [-webkit-overflow-scrolling:touch]">
+            <div className="flex w-max items-center gap-2">
+              <button
+                type="button"
+                className="rounded border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700"
+                onClick={handleAddThread}
+              >
+                + Thread
+              </button>
+              <button
+                type="button"
+                aria-label="Zoom out"
+                className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-sm font-semibold leading-none text-slate-700"
+                onClick={() => handleZoom(-0.1)}
+              >
+                -
+              </button>
+              <button
+                type="button"
+                aria-label="Zoom in"
+                className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-sm font-semibold leading-none text-slate-700"
+                onClick={() => handleZoom(0.1)}
+              >
+                +
+              </button>
+              <button
+                type="button"
+                className="rounded border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700"
+                onClick={handleFitView}
+              >
+                Fit
+              </button>
+              <button
+                type="button"
+                className="rounded border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700"
+                onClick={cycleEdgeLabelMode}
+                aria-label="Cycle edge label mode"
+              >
+                Labels:{" "}
+                {edgeLabelMode === "all"
+                  ? "All"
+                  : edgeLabelMode === "nonPo"
+                    ? "Relations"
+                    : "Off"}
+              </button>
+              <button
+                type="button"
+                className={`rounded px-2 py-1 text-xs font-semibold ${
+                  showAllNodes
+                    ? "bg-slate-900 text-white"
+                    : "border border-slate-200 bg-white text-slate-700"
+                }`}
+                onClick={toggleShowAllNodes}
+                aria-pressed={showAllNodes}
+                title="Force all nodes visible (ignores branch evaluations)"
+              >
+                Show all
+              </button>
+            </div>
+          </div>
+          <div className="flex flex-none items-center gap-2">
             <button
               type="button"
               className="rounded border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
               onClick={handleExportPng}
               disabled={isExporting}
+              aria-label="Export PNG"
             >
-              {isExporting ? "Exporting..." : "Export PNG"}
+              <span className="sm:hidden">
+                {isExporting ? "…" : "PNG"}
+              </span>
+              <span className="hidden sm:inline">
+                {isExporting ? "Exporting..." : "Export PNG"}
+              </span>
             </button>
-          </div>
-          <div className="flex items-center gap-2">
             <button
               type="button"
               className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-1"

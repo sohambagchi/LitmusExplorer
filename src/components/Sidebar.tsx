@@ -35,7 +35,7 @@ import SessionTitleDialog from "./SessionTitleDialog";
 import RelationDefinitionsDialog from "./RelationDefinitionsDialog";
 import TutorialDialog from "./TutorialDialog";
 import ConfirmDiscardDialog from "./ConfirmDiscardDialog";
-import { ArrowRight, Trash2 } from "lucide-react";
+import { ArrowRight, Trash2, X } from "lucide-react";
 
 type SidebarProps = {
   /**
@@ -43,6 +43,20 @@ type SidebarProps = {
    * Used to clear any shared-session URL state before wiping the local graph.
    */
   onNewSession?: () => void;
+  /**
+   * Controls how the sidebar is laid out:
+   * - `docked`: desktop layout inside the app shell (resizable width).
+   * - `drawer`: mobile off-canvas drawer (fixed width, no resize handle).
+   */
+  variant?: "docked" | "drawer";
+  /**
+   * Whether the drawer is open. Only used when `variant="drawer"`.
+   */
+  open?: boolean;
+  /**
+   * Called when the drawer should close (close button, etc.).
+   */
+  onRequestClose?: () => void;
 };
 
 type ToolboxItem = {
@@ -199,7 +213,13 @@ const LKMM_CAT_FIXTURES: CatAssetFixture[] = (() => {
   return fixtures;
 })();
 
-const Sidebar = ({ onNewSession }: SidebarProps) => {
+const Sidebar = ({
+  onNewSession,
+  variant = "docked",
+  open = false,
+  onRequestClose,
+}: SidebarProps) => {
+  const isDrawer = variant === "drawer";
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     if (typeof window === "undefined") {
       return 520;
@@ -917,26 +937,49 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
 
   return (
     <aside
-      className="relative flex h-full flex-none flex-col gap-6 overflow-y-auto border-r border-slate-200 bg-white p-4 text-sm text-slate-900"
-      style={{ width: sidebarWidth }}
+      className={
+        isDrawer
+          ? `relative flex h-dvh w-[min(92vw,420px)] flex-col gap-4 overflow-y-auto border-r border-slate-200 bg-white p-3 text-sm text-slate-900 shadow-xl ring-1 ring-slate-900/10 transition-transform duration-200 sm:p-4 ${
+              open ? "translate-x-0" : "-translate-x-full pointer-events-none"
+            }`
+          : "relative flex h-full flex-none flex-col gap-6 overflow-y-auto border-r border-slate-200 bg-white p-4 text-sm text-slate-900"
+      }
+      style={isDrawer ? undefined : { width: sidebarWidth }}
+      aria-hidden={isDrawer ? !open : undefined}
     >
-      <div
-        className="absolute inset-y-0 -right-1 z-20 w-2 cursor-col-resize"
-        role="separator"
-        aria-label="Resize sidebar"
-        onPointerDown={(event) => {
-          event.preventDefault();
-          resizeState.current = {
-            startX: event.clientX,
-            startWidth: sidebarWidth,
-            pointerId: event.pointerId,
-          };
-          event.currentTarget.setPointerCapture(event.pointerId);
-        }}
-      >
-        <div className="absolute inset-y-0 right-0 w-px bg-slate-200" />
-        <div className="absolute right-0 top-1/2 h-10 w-1 -translate-y-1/2 rounded bg-slate-200 opacity-0 transition-opacity hover:opacity-100" />
-      </div>
+      {isDrawer ? (
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Tools
+          </div>
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-1"
+            onClick={onRequestClose}
+            aria-label="Close sidebar"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+      ) : (
+        <div
+          className="absolute inset-y-0 -right-1 z-20 w-2 cursor-col-resize"
+          role="separator"
+          aria-label="Resize sidebar"
+          onPointerDown={(event) => {
+            event.preventDefault();
+            resizeState.current = {
+              startX: event.clientX,
+              startWidth: sidebarWidth,
+              pointerId: event.pointerId,
+            };
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }}
+        >
+          <div className="absolute inset-y-0 right-0 w-px bg-slate-200" />
+          <div className="absolute right-0 top-1/2 h-10 w-1 -translate-y-1/2 rounded bg-slate-200 opacity-0 transition-opacity hover:opacity-100" />
+        </div>
+      )}
 
       <button
         type="button"

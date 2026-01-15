@@ -47,6 +47,7 @@ const PAN_SPEED = 1;
 const CANVAS_NODE_ORIGIN: [number, number] = [0.5, 0];
 
 const DEFAULT_EDGE_ARROW_COLOR = "#0f172a";
+const DEFAULT_EDGE_ARROW_SIZE = 16;
 
 const coreRelationColors: Record<string, string> = {
   rf: "#0f172a",
@@ -603,8 +604,8 @@ const EditorCanvas = () => {
         markerEnd: {
           type: MarkerType.ArrowClosed,
           color,
-          width: 12,
-          height: 12,
+          width: DEFAULT_EDGE_ARROW_SIZE,
+          height: DEFAULT_EDGE_ARROW_SIZE,
           markerUnits: "userSpaceOnUse",
         },
       };

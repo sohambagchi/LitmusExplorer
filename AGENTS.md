@@ -1,7 +1,22 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-`PROMPT.md` defines the intended React/TypeScript application and core modules. Keep code under `src/` with clear subfolders, for example: `src/types.ts`, `src/store/useStore.ts`, `src/components/OperationNode.tsx`, `src/components/EditorCanvas.tsx`, and `src/components/Sidebar/`. Place custom React Flow edges/nodes under `src/edges/` and `src/nodes/`, and static assets under `src/assets/`.
+`PROMPT.md` captures the original product scaffold goals; the running implementation lives in `src/`.
+
+Current module layout:
+- `src/types.ts`: Domain and snapshot types.
+- `src/store/useStore.ts`: Zustand store (nodes, edges, memory, model config).
+- `src/components/`: UI components (includes React Flow node/edge components today).
+  - `src/components/EditorCanvas.tsx`: React Flow canvas + memory strip + viewport controls.
+  - `src/components/Sidebar.tsx`: Session/model tools, toolbox, and properties editor.
+  - `src/components/OperationNode.tsx`, `src/components/BranchNode.tsx`: Custom nodes.
+  - `src/components/RelationEdge.tsx`: Custom edge renderer.
+- `src/session/`: Import/export snapshot parsing/creation.
+- `src/share/`: Supabase-backed sharing (see `docs/sharing.md`).
+- `src/cat/`: Minimal `.cat` parser to extract relation definitions/types.
+- `src/utils/`: Pure helpers (constraints, PNG export, IDs, branch evaluation).
+
+If you introduce many new node/edge types, you may add `src/nodes/` and `src/edges/`, but keep existing imports and structure consistent with the current codebase.
 
 ## Build, Test, and Development Commands
 Use the scripts defined in `package.json`:
@@ -11,7 +26,7 @@ npm run dev       # start local dev server
 npm run build     # production build
 npm run preview   # preview production build
 ```
-Testing and linting scripts are not configured yet.
+There is no test runner or linter script configured yet. `tests/session-samples/` contains example session JSON fixtures for manual import.
 
 ## Tooling Versions
 - react: ^18.3.1

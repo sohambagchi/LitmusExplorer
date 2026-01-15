@@ -777,7 +777,8 @@ const EditorCanvas = () => {
               edges={edgesToRender}
               nodeTypes={nodeTypes}
               edgeTypes={edgeTypes}
-              connectionLineType={ConnectionLineType.Straight}
+              nodeOrigin={[0, 0.5]}
+              connectionLineType={ConnectionLineType.Step}
               panOnDrag={false}
               zoomOnScroll={false}
               translateExtent={translateExtent}

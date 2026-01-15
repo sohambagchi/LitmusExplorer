@@ -6,6 +6,8 @@ export type ComparisonOp = "==" | "<" | ">" | "<=" | ">=" | "!=";
 export type LogicalOp = "&&" | "||";
 export type RuleEvaluation = "natural" | "true" | "false";
 
+export type ArrayElementType = "int" | "ptr" | "struct";
+
 type MemoryVariableBase = {
   id: string;
   name: string;
@@ -21,6 +23,20 @@ export type IntMemoryVariable = MemoryVariableBase & {
 export type ArrayMemoryVariable = MemoryVariableBase & {
   type: "array";
   size?: number;
+  /**
+   * Element type for this array.
+   *
+   * Notes:
+   * - This is editor metadata used to describe what an array holds.
+   * - When `elementType` is `"struct"`, `elementStructId` may reference a struct
+   *   variable whose members describe the element layout.
+   */
+  elementType?: ArrayElementType;
+  /**
+   * Optional struct variable id that represents the element layout when this
+   * array is configured as an array of structs.
+   */
+  elementStructId?: string;
 };
 
 export type PtrMemoryVariable = MemoryVariableBase & {

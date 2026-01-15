@@ -21,6 +21,7 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import type {
+  ArrayElementType,
   BranchCondition,
   MemoryScope,
   MemoryType,
@@ -1047,6 +1048,7 @@ const EditorCanvas = () => {
           name: "",
           type: "array",
           scope,
+          elementType: "int",
         });
         return;
       }
@@ -1240,6 +1242,80 @@ const EditorCanvas = () => {
       .filter((candidate) => candidate.label);
   }, [memoryEnv]);
 
+  const arrayStructTemplateOptions = useMemo(() => {
+    const optionsByScope: Record<
+      MemoryScope,
+      Array<{ value: string; label: string }>
+    > = {
+      constants: [],
+      locals: [],
+      shared: [],
+    };
+
+    for (const variable of memoryEnv) {
+      if (variable.type !== "struct" || variable.parentId) {
+        continue;
+      }
+
+      const label = variable.name.trim() || variable.id;
+      if (!label) {
+        continue;
+      }
+
+      optionsByScope[variable.scope].push({ value: variable.id, label });
+    }
+
+    for (const scope of Object.keys(optionsByScope) as MemoryScope[]) {
+      optionsByScope[scope].sort((a, b) => a.label.localeCompare(b.label));
+    }
+
+    return optionsByScope;
+  }, [memoryEnv]);
+
+  /**
+   * Converts stored array element metadata into the `<select>` value used by the
+   * memory editor UI.
+   *
+   * @param variable - Array variable from the memory environment.
+   * @returns Encoded selection value (e.g. `"int"`, `"ptr"`, `"struct"`, `"struct:<id>"`).
+   */
+  const encodeArrayElementSelection = (variable: MemoryVariable): string => {
+    if (variable.type !== "array") {
+      return "int";
+    }
+    if (variable.elementType === "ptr") {
+      return "ptr";
+    }
+    if (variable.elementType === "struct") {
+      return variable.elementStructId
+        ? `struct:${variable.elementStructId}`
+        : "struct";
+    }
+    return "int";
+  };
+
+  /**
+   * Parses a `<select>` value into array element metadata updates.
+   *
+   * @param selection - Encoded selection value from the UI.
+   * @returns Partial updates suitable for `updateMemoryVar`.
+   */
+  const parseArrayElementSelection = (
+    selection: string
+  ): { elementType: ArrayElementType; elementStructId?: string } => {
+    if (selection === "ptr") {
+      return { elementType: "ptr", elementStructId: undefined };
+    }
+    if (selection === "struct") {
+      return { elementType: "struct", elementStructId: undefined };
+    }
+    if (selection.startsWith("struct:")) {
+      const structId = selection.slice("struct:".length).trim();
+      return { elementType: "struct", elementStructId: structId || undefined };
+    }
+    return { elementType: "int", elementStructId: undefined };
+  };
+
   const renderMemoryAtom = (item: MemoryVariable, nested: boolean) => {
     if (item.type === "struct") {
       return null;
@@ -1286,20 +1362,53 @@ const EditorCanvas = () => {
             <Trash2 className="h-4 w-4" aria-hidden="true" />
           </button>
           {item.type === "array" ? (
-            <input
-              type="number"
-              min={0}
-              className="w-24 rounded border border-slate-300 px-2 py-1 text-xs"
-              placeholder="size"
-              value={item.size ?? ""}
-              onChange={(event) => {
-                const parsed =
-                  event.target.value === "" ? undefined : Number(event.target.value);
-                updateMemoryVar(item.id, {
-                  size: typeof parsed === "number" && !Number.isNaN(parsed) ? parsed : undefined,
-                });
-              }}
-            />
+            <>
+              <select
+                className="w-24 rounded border border-slate-300 bg-white px-2 py-1 text-xs"
+                value={encodeArrayElementSelection(item)}
+                onChange={(event) =>
+                  updateMemoryVar(
+                    item.id,
+                    parseArrayElementSelection(event.target.value)
+                  )
+                }
+              >
+                <option value="int">int</option>
+                <option value="ptr">ptr</option>
+                <option value="struct">struct</option>
+                {arrayStructTemplateOptions[item.scope].length > 0 ? (
+                  <optgroup label="struct templates">
+                    {arrayStructTemplateOptions[item.scope].map((option) => (
+                      <option
+                        key={option.value}
+                        value={`struct:${option.value}`}
+                      >
+                        {option.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
+              </select>
+              <input
+                type="number"
+                min={0}
+                className="w-24 rounded border border-slate-300 px-2 py-1 text-xs"
+                placeholder="size"
+                value={item.size ?? ""}
+                onChange={(event) => {
+                  const parsed =
+                    event.target.value === ""
+                      ? undefined
+                      : Number(event.target.value);
+                  updateMemoryVar(item.id, {
+                    size:
+                      typeof parsed === "number" && !Number.isNaN(parsed)
+                        ? parsed
+                        : undefined,
+                  });
+                }}
+              />
+            </>
           ) : item.type === "ptr" ? (
             <select
               className="w-44 rounded border border-slate-300 bg-white px-2 py-1 text-xs"

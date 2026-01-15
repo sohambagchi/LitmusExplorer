@@ -1,5 +1,6 @@
 import type {
   ActiveBranch,
+  ArrayElementType,
   MemoryVariable,
   MemoryScope,
   RelationEdge,
@@ -21,6 +22,7 @@ const allowedOperationTypes = new Set([
   "RETURN_TRUE",
 ]);
 const allowedMemoryTypes = new Set(["int", "array", "ptr", "struct"]);
+const allowedArrayElementTypes = new Set(["int", "ptr", "struct"]);
 const allowedMemoryScopes = new Set(["constants", "locals", "shared"]);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -61,6 +63,47 @@ const parseOptionalSize = (value: unknown, label: string) => {
     return parsed;
   }
   throw new Error(`${label} must be a number.`);
+};
+
+/**
+ * Parses the optional element type metadata for array variables.
+ *
+ * @param value - Raw element type value from a snapshot.
+ * @param label - Error label for thrown exceptions.
+ * @returns Parsed element type, or `undefined` when not provided.
+ */
+const parseOptionalArrayElementType = (
+  value: unknown,
+  label: string
+): ArrayElementType | undefined => {
+  if (typeof value === "undefined") {
+    return undefined;
+  }
+  if (typeof value !== "string") {
+    throw new Error(`${label} must be a string.`);
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  if (!allowedArrayElementTypes.has(trimmed)) {
+    throw new Error(`${label} must be one of: int, ptr, struct.`);
+  }
+  return trimmed as ArrayElementType;
+};
+
+/**
+ * Parses an optional struct id reference used to describe array-of-struct element layouts.
+ *
+ * @param value - Raw id from a snapshot.
+ * @returns Trimmed id string, or `undefined` when not provided.
+ */
+const parseOptionalStructId = (value: unknown) => {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
 };
 
 const parseStringArray = (value: unknown, label: string) => {
@@ -288,7 +331,20 @@ const parseMemorySection = (
         typeof item.size !== "undefined" ? item.size : item.value,
         `${label}[${index}].size`
       );
-      return { ...baseVariable, type: "array" as const, size };
+      const elementType = parseOptionalArrayElementType(
+        item.elementType,
+        `${label}[${index}].elementType`
+      );
+      const elementStructId = parseOptionalStructId(item.elementStructId);
+
+      return {
+        ...baseVariable,
+        type: "array" as const,
+        size,
+        elementType,
+        elementStructId:
+          elementType === "struct" ? elementStructId : undefined,
+      };
     }
 
     if (type === "ptr") {
@@ -318,6 +374,11 @@ const parseMemorySnapshot = (value: unknown): SessionMemorySnapshot => {
 
   const allVariables = [...constants, ...locals, ...shared];
   const validIds = new Set(allVariables.map((item) => item.id));
+  const structScopeById = new Map(
+    allVariables
+      .filter((item) => item.type === "struct")
+      .map((item) => [item.id, item.scope] as const)
+  );
 
   /**
    * Clears invalid ptr targets so imports don't crash the UI with out-of-range
@@ -334,10 +395,34 @@ const parseMemorySnapshot = (value: unknown): SessionMemorySnapshot => {
       return item;
     });
 
+  /**
+   * Clears invalid struct references so importing sessions never crashes the
+   * array element-type `<select>` with an out-of-range selection.
+   */
+  const normalizeArrayStructRefs = (items: MemoryVariable[]) =>
+    items.map((item) => {
+      if (item.type !== "array") {
+        return item;
+      }
+      if (item.elementType !== "struct") {
+        if (typeof item.elementStructId === "undefined") {
+          return item;
+        }
+        return { ...item, elementStructId: undefined };
+      }
+      const referencedScope = item.elementStructId
+        ? structScopeById.get(item.elementStructId)
+        : undefined;
+      if (!referencedScope || referencedScope !== item.scope) {
+        return { ...item, elementStructId: undefined };
+      }
+      return item;
+    });
+
   return {
-    constants: normalizePointers(constants),
-    locals: normalizePointers(locals),
-    shared: normalizePointers(shared),
+    constants: normalizeArrayStructRefs(normalizePointers(constants)),
+    locals: normalizeArrayStructRefs(normalizePointers(locals)),
+    shared: normalizeArrayStructRefs(normalizePointers(shared)),
   };
 };
 
@@ -391,7 +476,20 @@ const parseLegacyMemoryEnv = (value: unknown): SessionMemorySnapshot => {
         typeof item.size !== "undefined" ? item.size : item.value,
         `memoryEnv[${index}].size`
       );
-      return { ...baseVariable, type: "array" as const, size };
+      const elementType = parseOptionalArrayElementType(
+        item.elementType,
+        `memoryEnv[${index}].elementType`
+      );
+      const elementStructId = parseOptionalStructId(item.elementStructId);
+
+      return {
+        ...baseVariable,
+        type: "array" as const,
+        size,
+        elementType,
+        elementStructId:
+          elementType === "struct" ? elementStructId : undefined,
+      };
     }
 
     if (type === "ptr") {
@@ -406,8 +504,28 @@ const parseLegacyMemoryEnv = (value: unknown): SessionMemorySnapshot => {
   });
 
   const validIds = new Set(env.map((item) => item.id));
+  const structScopeById = new Map(
+    env
+      .filter((item) => item.type === "struct")
+      .map((item) => [item.id, item.scope] as const)
+  );
   const normalized = env.map((item) => {
     if (item.type !== "ptr") {
+      if (item.type !== "array") {
+        return item;
+      }
+      if (item.elementType !== "struct") {
+        if (typeof item.elementStructId === "undefined") {
+          return item;
+        }
+        return { ...item, elementStructId: undefined };
+      }
+      const referencedScope = item.elementStructId
+        ? structScopeById.get(item.elementStructId)
+        : undefined;
+      if (!referencedScope || referencedScope !== item.scope) {
+        return { ...item, elementStructId: undefined };
+      }
       return item;
     }
     if (!item.pointsToId || !validIds.has(item.pointsToId)) {

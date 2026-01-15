@@ -37,6 +37,7 @@ import { evaluateBranchCondition } from "../utils/branchEvaluation";
 import ConfirmDialog from "./ConfirmDialog";
 import { exportReactFlowViewportToPng } from "../utils/exportReactFlowPng";
 import { Trash2 } from "lucide-react";
+import { createUuid } from "../utils/createUuid";
 
 const LANE_WIDTH = 260;
 const LANE_LABEL_HEIGHT = 80;
@@ -137,6 +138,23 @@ const getSequenceY = (sequenceIndex: number) => sequenceIndex * GRID_Y;
  * - render `y` = store `x` (time top→bottom)
  */
 const transposeXY = ({ x, y }: { x: number; y: number }) => ({ x: y, y: x });
+
+/**
+ * Create a unique node id for React Flow.
+ *
+ * Why this exists:
+ * - Sessions can be imported with arbitrary node ids (including `node-1`, `node-2`, ...).
+ * - Using a local counter risks collisions across imports/resets/remounts.
+ * - An id collision makes an existing node appear to "vanish" and causes edges
+ *   to seemingly remap because they still point at the colliding id.
+ */
+const createTraceNodeId = (takenIds: Set<string>) => {
+  let candidate = `node-${createUuid()}`;
+  while (takenIds.has(candidate)) {
+    candidate = `node-${createUuid()}`;
+  }
+  return candidate;
+};
 
 const createMemoryId = () =>
   `mem-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -339,7 +357,6 @@ const EditorCanvas = () => {
   const sessionTitle = useStore((state) => state.sessionTitle);
   const reactFlowInstance = useRef<ReactFlowInstance | null>(null);
   const reactFlowWrapperRef = useRef<HTMLDivElement | null>(null);
-  const idCounter = useRef(1);
   const [isLocked, setIsLocked] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [pendingThreadDelete, setPendingThreadDelete] = useState<{
@@ -1050,29 +1067,34 @@ const EditorCanvas = () => {
         : (threadsForLayout[laneIndex] ?? "T0");
       const sequenceIndex = getSequenceIndex(position.y);
 
-      const newNode: TraceNode = {
-        id: `node-${idCounter.current++}`,
-        type: nodeType as "operation" | "branch",
-        position: {
-          x: getSequenceY(sequenceIndex),
-          y: getLaneX(laneIndex),
-        },
-        data: {
-          threadId,
-          sequenceIndex,
-          operation: {
-            type: operationType as TraceNode["data"]["operation"]["type"],
-            ...(operationType === "BRANCH"
-              ? {
-                  branchCondition: createBranchGroupCondition(),
-                  branchShowBothFutures: true,
-                }
-              : null),
-          },
-        },
-      };
+      setNodes((current) => {
+        const takenIds = new Set(current.map((node) => node.id));
+        const id = createTraceNodeId(takenIds);
 
-      setNodes((current) => [...current, newNode]);
+        const newNode: TraceNode = {
+          id,
+          type: nodeType as "operation" | "branch",
+          position: {
+            x: getSequenceY(sequenceIndex),
+            y: getLaneX(laneIndex),
+          },
+          data: {
+            threadId,
+            sequenceIndex,
+            operation: {
+              type: operationType as TraceNode["data"]["operation"]["type"],
+              ...(operationType === "BRANCH"
+                ? {
+                    branchCondition: createBranchGroupCondition(),
+                    branchShowBothFutures: true,
+                  }
+                : null),
+            },
+          },
+        };
+
+        return [...current, newNode];
+      });
     },
     [addThread, displayLaneCount, setNodes, threadsForLayout]
   );

@@ -1,13 +1,100 @@
 import { useMemo } from "react";
 import { Handle, Position, type NodeProps } from "reactflow";
-import type { BranchPath, TraceNodeData } from "../types";
+import type {
+  BranchCondition,
+  BranchPath,
+  BranchRuleCondition,
+  MemoryVariable,
+  TraceNodeData,
+} from "../types";
 import { useStore } from "../store/useStore";
 import { evaluateBranchCondition } from "../utils/branchEvaluation";
+
+/**
+ * Formats a memory variable label for display in compact UI surfaces.
+ *
+ * @param item - Memory variable to format.
+ * @param memoryById - Lookup map of variables by id.
+ */
+const formatMemoryLabel = (
+  item: MemoryVariable | undefined,
+  memoryById: Map<string, MemoryVariable>
+) => {
+  if (!item) {
+    return "?";
+  }
+  const name = item.name.trim() || item.id;
+  if (!item.parentId) {
+    return name;
+  }
+  const parentName = memoryById.get(item.parentId)?.name.trim() || "struct";
+  return `${parentName}.${name}`;
+};
+
+/**
+ * Returns the single leaf rule if (and only if) the condition tree contains
+ * exactly one rule; otherwise returns null.
+ *
+ * @param condition - Branch condition tree (root group or nested).
+ */
+const getSingleLeafRule = (condition: BranchCondition | undefined) => {
+  if (!condition) {
+    return null;
+  }
+
+  let found: BranchRuleCondition | null = null;
+  const visit = (node: BranchCondition): boolean => {
+    if (node.kind === "rule") {
+      if (found) {
+        return false;
+      }
+      found = node;
+      return true;
+    }
+
+    for (const item of node.items) {
+      if (!visit(item)) {
+        return false;
+      }
+    }
+
+    return true;
+  };
+
+  return visit(condition) ? found : null;
+};
+
+/**
+ * Formats a single branch rule into a compact inline label suitable for the
+ * branch-node diamond.
+ *
+ * @param rule - Rule to format.
+ * @param memoryById - Lookup map of variables by id.
+ */
+const formatBranchRuleLabel = (
+  rule: BranchRuleCondition,
+  memoryById: Map<string, MemoryVariable>
+) => {
+  if (rule.evaluation === "true") {
+    return "True";
+  }
+  if (rule.evaluation === "false") {
+    return "False";
+  }
+
+  const lhs = rule.lhsId ? formatMemoryLabel(memoryById.get(rule.lhsId), memoryById) : "?";
+  const rhs = rule.rhsId ? formatMemoryLabel(memoryById.get(rule.rhsId), memoryById) : "?";
+  return `${lhs}${rule.op}${rhs}`;
+};
 
 const BranchNode = ({ id, data, selected }: NodeProps<TraceNodeData>) => {
   const memoryEnv = useStore((state) => state.memoryEnv);
   const setNodes = useStore((state) => state.setNodes);
   const showAllNodes = useStore((state) => state.showAllNodes);
+  const memoryById = useMemo(
+    () => new Map(memoryEnv.map((item) => [item.id, item])),
+    [memoryEnv]
+  );
 
   const condition = data.operation.branchCondition;
   const evaluatedPath = useMemo<BranchPath>(() => {
@@ -17,10 +104,14 @@ const BranchNode = ({ id, data, selected }: NodeProps<TraceNodeData>) => {
     return evaluateBranchCondition(condition, memoryEnv) ? "then" : "else";
   }, [condition, memoryEnv]);
 
-  const label = useMemo(
-    () => data.operation.text ?? "BRANCH",
-    [data.operation.text]
-  );
+  const label = useMemo(() => {
+    if (data.operation.text) {
+      return data.operation.text;
+    }
+
+    const singleRule = getSingleLeafRule(condition);
+    return singleRule ? formatBranchRuleLabel(singleRule, memoryById) : "BRANCH";
+  }, [condition, data.operation.text, memoryById]);
 
   /**
    * "Both" defaults to enabled to avoid surprising disappearing nodes.
@@ -35,7 +126,10 @@ const BranchNode = ({ id, data, selected }: NodeProps<TraceNodeData>) => {
           selected ? "ring-2 ring-slate-600" : ""
         }`}
       >
-        <div className="absolute inset-0 flex -rotate-45 items-center justify-center text-[10px] font-semibold">
+        <div
+          className="absolute inset-0 flex -rotate-45 items-center justify-center px-1 text-center text-[10px] font-semibold"
+          title={label}
+        >
           {label}
         </div>
       </div>

@@ -145,17 +145,58 @@ export const useStore = create<StoreState>()((set, get) => ({
       nodes.filter((node) => node.data.threadId === threadId).map((node) => node.id)
     );
 
-    const nextNodes = nodes.filter((node) => !nodeIdsToDelete.has(node.id));
+    const nextNodes = nodes
+      .filter((node) => !nodeIdsToDelete.has(node.id))
+      .map((node) => {
+        if (!node.data.branchId || !nodeIdsToDelete.has(node.data.branchId)) {
+          return node;
+        }
+        const nextData = { ...node.data };
+        delete nextData.branchId;
+        delete nextData.branchPath;
+        return { ...node, data: nextData };
+      });
     const nextEdges = edges.filter(
       (edge) => !nodeIdsToDelete.has(edge.source) && !nodeIdsToDelete.has(edge.target)
     );
 
-    const nextThreads = threads.filter((id) => id !== threadId);
+    const remainingThreads = threads.filter((id) => id !== threadId);
+    const orderedThreadIds = [...remainingThreads];
+    const seenThreadIds = new Set(orderedThreadIds);
+
+    for (const node of nextNodes) {
+      const id = node.data.threadId;
+      if (!seenThreadIds.has(id)) {
+        seenThreadIds.add(id);
+        orderedThreadIds.push(id);
+      }
+    }
+
+    const threadIdMap = new Map<string, string>();
+    orderedThreadIds.forEach((id, index) => {
+      threadIdMap.set(id, `T${index}`);
+    });
+
+    const normalizedNodes = nextNodes.map((node) => {
+      const nextThreadId = threadIdMap.get(node.data.threadId);
+      if (!nextThreadId || nextThreadId === node.data.threadId) {
+        return node;
+      }
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          threadId: nextThreadId,
+        },
+      };
+    });
+
+    const normalizedThreads = orderedThreadIds.map((_id, index) => `T${index}`);
 
     set({
-      nodes: nextNodes,
+      nodes: normalizedNodes,
       edges: nextEdges,
-      threads: nextThreads.length > 0 ? nextThreads : ["T0"],
+      threads: normalizedThreads,
       activeBranch: activeBranch && nodeIdsToDelete.has(activeBranch.branchId) ? null : activeBranch,
     });
 

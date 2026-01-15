@@ -65,7 +65,7 @@ const createMemoryId = () =>
   `mem-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 const getThreadsForLayout = (threads: string[], nodes: TraceNode[]) => {
-  const orderedThreads = threads.length > 0 ? threads : ["T0"];
+  const orderedThreads = threads;
   const threadSet = new Set(orderedThreads);
   const merged = [...orderedThreads];
 
@@ -80,16 +80,10 @@ const getThreadsForLayout = (threads: string[], nodes: TraceNode[]) => {
   return merged;
 };
 
-const LaneOverlay = ({
+const LaneBackgroundOverlay = ({
   threads,
-  nextThreadId,
-  nodeCountsByThread,
-  onRequestDeleteThread,
 }: {
   threads: string[];
-  nextThreadId: string;
-  nodeCountsByThread: Map<string, number>;
-  onRequestDeleteThread: (threadId: string) => void;
 }) => (
   <div className="pointer-events-none absolute inset-0 z-0">
     {threads.map((threadId, index) => (
@@ -101,28 +95,9 @@ const LaneOverlay = ({
         style={{ height: LANE_HEIGHT }}
       >
         <div
-          className="absolute inset-y-0 left-0 flex items-center justify-center border-r border-slate-200 bg-slate-100/85"
+          className="absolute inset-y-0 left-0 border-r border-slate-200 bg-slate-100/85"
           style={{ width: LANE_LABEL_WIDTH }}
-        >
-          <div className="pointer-events-auto flex items-center gap-1 rounded bg-slate-900 px-2 py-1 text-[10px] font-semibold text-white">
-            <span>{threadId}</span>
-            <button
-              type="button"
-              className="rounded bg-white/10 px-1 py-0.5 text-[10px] font-semibold text-white hover:bg-white/20"
-              onMouseDown={(event) => {
-                event.stopPropagation();
-              }}
-              onClick={(event) => {
-                event.stopPropagation();
-                onRequestDeleteThread(threadId);
-              }}
-              title={`Delete ${threadId} (${nodeCountsByThread.get(threadId) ?? 0} nodes)`}
-              aria-label={`Delete ${threadId}`}
-            >
-              ✕
-            </button>
-          </div>
-        </div>
+        />
       </div>
     ))}
     <div
@@ -130,16 +105,62 @@ const LaneOverlay = ({
       style={{ height: LANE_HEIGHT }}
     >
       <div
-        className="absolute inset-y-0 left-0 flex flex-col items-center justify-center gap-1 border-r border-dashed border-slate-300 bg-slate-100/85"
+        className="absolute inset-y-0 left-0 border-r border-dashed border-slate-300 bg-slate-100/85"
         style={{ width: LANE_LABEL_WIDTH }}
+      />
+    </div>
+  </div>
+);
+
+const LaneLabelsOverlay = ({
+  threads,
+  nextThreadId,
+  nodeCountsByThread,
+  onRequestDeleteThread,
+}: {
+  threads: string[];
+  nextThreadId: string;
+  nodeCountsByThread: Map<string, number>;
+  onRequestDeleteThread: (threadId: string) => void;
+}) => (
+  <div
+    className="pointer-events-none absolute inset-y-0 left-0 z-20"
+    style={{ width: LANE_LABEL_WIDTH }}
+  >
+    {threads.map((threadId, index) => (
+      <div
+        key={`${threadId}-${index}`}
+        className="relative flex items-center justify-center border-b border-slate-200 bg-slate-100/85"
+        style={{ height: LANE_HEIGHT }}
       >
-        <div className="rounded bg-slate-700/80 px-2 py-1 text-[10px] font-semibold text-white/90">
-          {nextThreadId}
-        </div>
-        <div className="text-[10px] font-medium text-slate-500">
-          Drop to add
+        <div className="pointer-events-auto flex items-center gap-1 rounded bg-slate-900 px-2 py-1 text-[10px] font-semibold text-white">
+          <span>{threadId}</span>
+          <button
+            type="button"
+            className="rounded bg-white/10 px-1 py-0.5 text-[10px] font-semibold text-white hover:bg-white/20"
+            onMouseDown={(event) => {
+              event.stopPropagation();
+            }}
+            onClick={(event) => {
+              event.stopPropagation();
+              onRequestDeleteThread(threadId);
+            }}
+            title={`Delete ${threadId} (${nodeCountsByThread.get(threadId) ?? 0} nodes)`}
+            aria-label={`Delete ${threadId}`}
+          >
+            ✕
+          </button>
         </div>
       </div>
+    ))}
+    <div
+      className="relative flex flex-col items-center justify-center gap-1 border-b border-dashed border-slate-300 bg-slate-100/85"
+      style={{ height: LANE_HEIGHT }}
+    >
+      <div className="rounded bg-slate-700/80 px-2 py-1 text-[10px] font-semibold text-white/90">
+        {nextThreadId}
+      </div>
+      <div className="text-[10px] font-medium text-slate-500">Drop to add</div>
     </div>
   </div>
 );
@@ -309,9 +330,13 @@ const EditorCanvas = () => {
   const requestDeleteThread = useCallback(
     (threadId: string) => {
       const nodeCount = nodeCountsByThread.get(threadId) ?? 0;
+      if (nodeCount === 0) {
+        deleteThread(threadId);
+        return;
+      }
       setPendingThreadDelete({ threadId, nodeCount });
     },
-    [nodeCountsByThread]
+    [deleteThread, nodeCountsByThread]
   );
 
   const nextThreadId = useMemo(() => {
@@ -766,11 +791,8 @@ const EditorCanvas = () => {
             style={{ height: canvasHeight }}
             onWheelCapture={handleWheelPan}
           >
-            <LaneOverlay
+            <LaneBackgroundOverlay
               threads={threadsForLayout}
-              nextThreadId={nextThreadId}
-              nodeCountsByThread={nodeCountsByThread}
-              onRequestDeleteThread={requestDeleteThread}
             />
             <ReactFlow
               nodes={visibleNodes}
@@ -810,6 +832,12 @@ const EditorCanvas = () => {
                 variant={BackgroundVariant.Lines}
               />
             </ReactFlow>
+            <LaneLabelsOverlay
+              threads={threadsForLayout}
+              nextThreadId={nextThreadId}
+              nodeCountsByThread={nodeCountsByThread}
+              onRequestDeleteThread={requestDeleteThread}
+            />
             <ConfirmDialog
               open={pendingThreadDelete !== null}
               title={

@@ -9,7 +9,7 @@ validate basic consistency/typing constraints on those edges.
 - Connect nodes to create `po` (program-order) edges, then select an edge to set its `relationType` (e.g. `rf`, `co`, `fr`, custom).
 - Branch nodes expose `then`/`else` handles and can hide the non-taken future (or show both).
 - Validate edges (same-thread requirements, same-location requirements for `rf`/`co`/`fr`, and simple `rf` ordering).
-- Import/export session snapshots (JSON), export canvas as PNG.
+- Import herdtools-style `.litmus` tests, import/export session snapshots (JSON), export canvas as PNG.
 - Optional: share sessions via Supabase (`docs/sharing.md`).
 - Optional: upload `.cat` files to extract relation names/definitions for the edge type dropdown.
 

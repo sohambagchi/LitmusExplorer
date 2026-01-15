@@ -19,6 +19,7 @@ import type {
 } from "../types";
 import { useStore } from "../store/useStore";
 import { parseSessionSnapshot } from "../session/parseSessionSnapshot";
+import { parseLitmusTestToSessionSnapshot } from "../session/parseLitmusTest";
 import { createSessionSnapshot } from "../session/createSessionSnapshot";
 import { createSessionFingerprint } from "../session/sessionFingerprint";
 import { checkEdgeConstraints } from "../utils/edgeConstraints";
@@ -449,15 +450,18 @@ const Sidebar = ({
       setImportError(null);
       try {
         const rawText = await file.text();
-        const parsed = JSON.parse(rawText) as unknown;
-        const snapshot = parseSessionSnapshot(parsed);
-        const fileTitle = file.name.replace(/\.json$/i, "").trim();
-        const snapshotWithTitle =
-          snapshot.title || !fileTitle || fileTitle === "litmus-session"
-            ? snapshot
-            : { ...snapshot, title: fileTitle };
+        const fileTitle = file.name.replace(/\.(json|litmus)$/i, "").trim();
+        const snapshot = file.name.toLowerCase().endsWith(".litmus")
+          ? parseLitmusTestToSessionSnapshot(rawText, { fallbackTitle: fileTitle })
+          : (() => {
+              const parsed = JSON.parse(rawText) as unknown;
+              const parsedSnapshot = parseSessionSnapshot(parsed);
+              return parsedSnapshot.title || !fileTitle || fileTitle === "litmus-session"
+                ? parsedSnapshot
+                : { ...parsedSnapshot, title: fileTitle };
+            })();
         onNewSession?.();
-        importSession(snapshotWithTitle);
+        importSession(snapshot);
       } catch (error) {
         setImportError(
           error instanceof Error ? error.message : "Failed to import session."
@@ -1013,12 +1017,12 @@ const Sidebar = ({
             className="w-full rounded border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-800"
             onClick={() => sessionFileInputRef.current?.click()}
           >
-            Import Session
+            Import Session / Litmus
           </button>
           <input
             ref={sessionFileInputRef}
             type="file"
-            accept=".json,application/json"
+            accept=".json,.litmus,application/json,text/plain"
             className="hidden"
             onChange={(event) => {
               const file = event.target.files?.[0];

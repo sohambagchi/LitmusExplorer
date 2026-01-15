@@ -16,7 +16,9 @@ const LANE_HEIGHT = 120;
 const STRAIGHT_EPSILON_PX = 6;
 const BUFFER_Y_OFFSET_STEP_PX = 6;
 const BUFFER_Y_OFFSET_SLOTS = [0, 1, -1, 2, -2, 3, -3];
-const ARROW_APPROACH_PX = 14;
+// Keep the final segment long enough to orient the marker, but short enough to
+// avoid intruding into the left-side lane label gutter.
+const ARROW_APPROACH_PX = 8;
 const FALLBACK_NODE_HEIGHT: Record<string, number> = {
   branch: 56,
   operation: 44,

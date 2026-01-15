@@ -8,6 +8,8 @@ type Point = { x: number; y: number };
 
 const LANE_HEIGHT = 120;
 const STRAIGHT_EPSILON_PX = 6;
+const BUFFER_Y_OFFSET_STEP_PX = 6;
+const BUFFER_Y_OFFSET_SLOTS = [0, 1, -1, 2, -2, 3, -3];
 const FALLBACK_NODE_HEIGHT: Record<string, number> = {
   branch: 56,
   operation: 44,
@@ -71,6 +73,7 @@ const buildOrthogonalPoints = ({
   sourceNode,
   targetNode,
   sourceHandleId,
+  edgeYOffsetPx,
 }: {
   sourceX: number;
   sourceY: number;
@@ -79,6 +82,7 @@ const buildOrthogonalPoints = ({
   sourceNode: Node<TraceNodeData> | undefined;
   targetNode: Node<TraceNodeData> | undefined;
   sourceHandleId?: string | null;
+  edgeYOffsetPx?: number;
 }) => {
   if (Math.abs(sourceY - targetY) <= STRAIGHT_EPSILON_PX) {
     return simplifyPoints([
@@ -145,6 +149,11 @@ const buildOrthogonalPoints = ({
     return goingDown ? "top" : "bottom";
   })();
 
+  const clampToLane = (y: number, laneTop: number, laneBottom: number) =>
+    Math.max(laneTop + 2, Math.min(laneBottom - 2, y));
+  const clampToRange = (y: number, min: number, max: number) => Math.max(min, Math.min(max, y));
+  const localYOffset = edgeYOffsetPx ?? 0;
+
   if (sameThread) {
     const laneTop = (sourceMetrics.laneTop + targetMetrics.laneTop) / 2;
     const laneBottom = (sourceMetrics.laneBottom + targetMetrics.laneBottom) / 2;
@@ -155,7 +164,17 @@ const buildOrthogonalPoints = ({
         : (Math.max(sourceMetrics.nodeBottom, targetMetrics.nodeBottom) + laneBottom) /
           2;
 
-    const clampedRouteY = Math.max(laneTop + 2, Math.min(laneBottom - 2, routeY));
+    const laneClamped = clampToLane(routeY + localYOffset, laneTop, laneBottom);
+    const maxNodeTop = Math.min(sourceMetrics.nodeTop, targetMetrics.nodeTop) - 2;
+    const minNodeBottom = Math.max(sourceMetrics.nodeBottom, targetMetrics.nodeBottom) + 2;
+    const clampedRouteY =
+      sourcePref === "top"
+        ? maxNodeTop > laneTop + 2
+          ? clampToRange(laneClamped, laneTop + 2, maxNodeTop)
+          : laneClamped
+        : minNodeBottom < laneBottom - 2
+          ? clampToRange(laneClamped, minNodeBottom, laneBottom - 2)
+          : laneClamped;
 
     return simplifyPoints([
       { x: sourceX, y: sourceY },
@@ -176,14 +195,40 @@ const buildOrthogonalPoints = ({
       ? targetMetrics.nodeTop - targetBuffer / 2
       : targetMetrics.nodeBottom + targetBuffer / 2;
 
-  const clampedSourceRouteY = Math.max(
-    sourceMetrics.laneTop + 2,
-    Math.min(sourceMetrics.laneBottom - 2, sourceRouteY)
+  const clampedSourceLane = clampToLane(
+    sourceRouteY + localYOffset,
+    sourceMetrics.laneTop,
+    sourceMetrics.laneBottom
   );
-  const clampedTargetRouteY = Math.max(
-    targetMetrics.laneTop + 2,
-    Math.min(targetMetrics.laneBottom - 2, targetRouteY)
+  const clampedTargetLane = clampToLane(
+    targetRouteY + localYOffset,
+    targetMetrics.laneTop,
+    targetMetrics.laneBottom
   );
+  const clampedSourceRouteY =
+    sourcePref === "top"
+      ? sourceMetrics.nodeTop - 2 > sourceMetrics.laneTop + 2
+        ? clampToRange(clampedSourceLane, sourceMetrics.laneTop + 2, sourceMetrics.nodeTop - 2)
+        : clampedSourceLane
+      : sourceMetrics.nodeBottom + 2 < sourceMetrics.laneBottom - 2
+        ? clampToRange(
+            clampedSourceLane,
+            sourceMetrics.nodeBottom + 2,
+            sourceMetrics.laneBottom - 2
+          )
+        : clampedSourceLane;
+  const clampedTargetRouteY =
+    targetPref === "top"
+      ? targetMetrics.nodeTop - 2 > targetMetrics.laneTop + 2
+        ? clampToRange(clampedTargetLane, targetMetrics.laneTop + 2, targetMetrics.nodeTop - 2)
+        : clampedTargetLane
+      : targetMetrics.nodeBottom + 2 < targetMetrics.laneBottom - 2
+        ? clampToRange(
+            clampedTargetLane,
+            targetMetrics.nodeBottom + 2,
+            targetMetrics.laneBottom - 2
+          )
+        : clampedTargetLane;
 
   const midX = (sourceX + targetX) / 2;
   return simplifyPoints([
@@ -302,6 +347,11 @@ const hashString = (value: string) => {
   return hash;
 };
 
+const getBufferEdgeYOffsetPx = (edgeId: string) => {
+  const slot = BUFFER_Y_OFFSET_SLOTS[hashString(edgeId) % BUFFER_Y_OFFSET_SLOTS.length];
+  return slot ? slot * BUFFER_Y_OFFSET_STEP_PX : 0;
+};
+
 const getRelationColor = (relationType: RelationType) => {
   const core = coreRelationColors[relationType];
   if (core) {
@@ -336,6 +386,7 @@ const RelationEdge = ({
   const isGenerated = data?.generated ?? false;
   const edgeLabelMode = useStore((state) => state.edgeLabelMode);
   const focusedEdgeLabelId = useStore((state) => state.focusedEdgeLabelId);
+  const edgeYOffsetPx = getBufferEdgeYOffsetPx(id);
   const points = buildOrthogonalPoints({
     sourceX,
     sourceY,
@@ -344,6 +395,7 @@ const RelationEdge = ({
     sourceNode,
     targetNode,
     sourceHandleId,
+    edgeYOffsetPx,
   });
   const edgePath = invalid
     ? buildJaggedOrthogonalPath(points)

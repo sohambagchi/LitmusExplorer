@@ -43,6 +43,7 @@ const GRID_X = 80;
 const MIN_SEQUENCE_INDEX = 1;
 const MAX_CANVAS_X = 200_000;
 const PAN_SPEED = 1;
+const CANVAS_NODE_ORIGIN: [number, number] = [0, 0.5];
 
 const sanitizeFilename = (raw: string) =>
   raw
@@ -733,6 +734,7 @@ const EditorCanvas = () => {
         viewportElement,
         nodes: flow.getNodes(),
         filename,
+        nodeOrigin: CANVAS_NODE_ORIGIN,
       });
     } catch (error) {
       const message =
@@ -1163,7 +1165,7 @@ const EditorCanvas = () => {
               edges={edgesToRender}
               nodeTypes={nodeTypes}
               edgeTypes={edgeTypes}
-              nodeOrigin={[0, 0.5]}
+              nodeOrigin={CANVAS_NODE_ORIGIN}
               connectionLineType={ConnectionLineType.Step}
               panOnDrag={false}
               zoomOnScroll={false}

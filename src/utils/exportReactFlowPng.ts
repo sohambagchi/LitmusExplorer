@@ -40,8 +40,8 @@ export const exportReactFlowViewportToPng = async ({
   }
 
   // React Flow bounds calculations depend on the node origin. Our canvas uses a
-  // centered Y-origin (`nodeOrigin={[0, 0.5]}`), so we pass it through here to
-  // avoid skewed exports (e.g. larger bottom padding than top).
+  // top-aligned Y-origin (`nodeOrigin={[0.5, 0]}`), so we pass it through here
+  // to avoid skewed exports (e.g. larger bottom padding than top).
   const bounds = getNodesBounds(nodes, nodeOrigin);
   const width = Math.max(1, Math.ceil(bounds.width + padding * 2));
   const height = Math.max(1, Math.ceil(bounds.height + padding * 2));

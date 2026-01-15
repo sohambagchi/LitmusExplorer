@@ -12,16 +12,57 @@ import type { RelationEdgeData, RelationType, TraceNodeData } from "../types";
 // Render a jagged path to emphasize invalid relations.
 type Point = { x: number; y: number };
 
-const LANE_HEIGHT = 120;
+// NOTE: The canvas renders with time going down and threads left→right, but this
+// edge router was originally written for a left→right time axis. We keep the
+// routing logic stable by computing paths in a "logical" coordinate space where
+// time is X and threads are Y, then transpose the result back to render space.
+const LANE_HEIGHT = 260;
 const STRAIGHT_EPSILON_PX = 6;
-const BUFFER_Y_OFFSET_STEP_PX = 6;
-const BUFFER_Y_OFFSET_SLOTS = [0, 1, -1, 2, -2, 3, -3];
+const BUFFER_OFFSET_STEP_PX = 6;
+const BUFFER_OFFSET_SLOTS = [0, 1, -1, 2, -2, 3, -3];
 // Keep the final segment long enough to orient the marker, but short enough to
 // avoid intruding into the left-side lane label gutter.
 const ARROW_APPROACH_PX = 8;
-const FALLBACK_NODE_HEIGHT: Record<string, number> = {
+const FALLBACK_NODE_SIZE_PX: Record<string, number> = {
   branch: 56,
-  operation: 44,
+  operation: 110,
+};
+
+const transposePoint = (point: Point): Point => ({ x: point.y, y: point.x });
+
+const transposePosition = (position: Position) => {
+  switch (position) {
+    case Position.Top:
+      return Position.Left;
+    case Position.Bottom:
+      return Position.Right;
+    case Position.Left:
+      return Position.Top;
+    case Position.Right:
+      return Position.Bottom;
+    default:
+      return position;
+  }
+};
+
+const toLogicalNode = (node: Node<TraceNodeData> | undefined) => {
+  if (!node) {
+    return undefined;
+  }
+
+  const width =
+    node.width ??
+    (node.type ? FALLBACK_NODE_SIZE_PX[node.type] : undefined) ??
+    110;
+
+  return {
+    ...node,
+    position: { x: node.position.y, y: node.position.x },
+    // `buildOrthogonalPoints` uses `node.height` as the node size within a lane.
+    // After transposing coordinates, the lane axis becomes the render X-axis, so
+    // the relevant node size is its measured width.
+    height: width,
+  };
 };
 
 const simplifyPoints = (points: Point[]) => {
@@ -190,8 +231,8 @@ const buildOrthogonalPoints = ({
     node?.position?.y ?? y;
   const getHeight = (node: Node<TraceNodeData> | undefined) =>
     node?.height ??
-    (node?.type ? FALLBACK_NODE_HEIGHT[node.type] : undefined) ??
-    44;
+    (node?.type ? FALLBACK_NODE_SIZE_PX[node.type] : undefined) ??
+    110;
 
   const getMetrics = (
     node: Node<TraceNodeData> | undefined,
@@ -392,31 +433,6 @@ const buildJaggedOrthogonalPath = (points: Point[]) => {
   return pointsToPath(simplifyPoints(jagged));
 };
 
-const getHorizontalLabelAnchor = (points: Point[]) => {
-  let best: { x1: number; x2: number; y: number; length: number } | null = null;
-
-  for (let i = 0; i < points.length - 1; i += 1) {
-    const start = points[i];
-    const end = points[i + 1];
-    if (!start || !end) {
-      continue;
-    }
-    if (start.y !== end.y || start.x === end.x) {
-      continue;
-    }
-    const length = Math.abs(end.x - start.x);
-    if (!best || length > best.length) {
-      best = { x1: start.x, x2: end.x, y: start.y, length };
-    }
-  }
-
-  if (!best) {
-    return null;
-  }
-
-  return { x: (best.x1 + best.x2) / 2, y: best.y };
-};
-
 const coreRelationColors: Record<string, string> = {
   rf: "#0f172a",
   co: "#0284c7",
@@ -435,9 +451,10 @@ const hashString = (value: string) => {
   return hash;
 };
 
-const getBufferEdgeYOffsetPx = (edgeId: string) => {
-  const slot = BUFFER_Y_OFFSET_SLOTS[hashString(edgeId) % BUFFER_Y_OFFSET_SLOTS.length];
-  return slot ? slot * BUFFER_Y_OFFSET_STEP_PX : 0;
+const getBufferEdgeOffsetPx = (edgeId: string) => {
+  const slot =
+    BUFFER_OFFSET_SLOTS[hashString(edgeId) % BUFFER_OFFSET_SLOTS.length];
+  return slot ? slot * BUFFER_OFFSET_STEP_PX : 0;
 };
 
 const getRelationColor = (relationType: RelationType) => {
@@ -465,8 +482,8 @@ const RelationEdge = ({
   style,
 }: EdgeProps<RelationEdgeData>) => {
   const { getNode } = useReactFlow<TraceNodeData, RelationEdgeData>();
-  const sourceNode = source ? getNode(source) : undefined;
-  const targetNode = target ? getNode(target) : undefined;
+  const sourceNode = toLogicalNode(source ? getNode(source) : undefined);
+  const targetNode = toLogicalNode(target ? getNode(target) : undefined);
 
   const invalid = data?.invalid ?? false;
   const relationType = data?.relationType ?? "po";
@@ -475,33 +492,66 @@ const RelationEdge = ({
   const isGenerated = data?.generated ?? false;
   const edgeLabelMode = useStore((state) => state.edgeLabelMode);
   const focusedEdgeLabelId = useStore((state) => state.focusedEdgeLabelId);
-  const edgeYOffsetPx = getBufferEdgeYOffsetPx(id);
+  const edgeOffsetPx = getBufferEdgeOffsetPx(id);
+
+  // Transpose edge coordinates to the logical routing space (time=X, lane=Y).
+  const logicalSourceX = sourceY;
+  const logicalSourceY = sourceX;
+  const logicalTargetX = targetY;
+  const logicalTargetY = targetX;
+
   const points = buildOrthogonalPoints({
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
+    sourceX: logicalSourceX,
+    sourceY: logicalSourceY,
+    targetX: logicalTargetX,
+    targetY: logicalTargetY,
     sourceNode,
     targetNode,
     sourceHandleId,
-    edgeYOffsetPx,
+    edgeYOffsetPx: edgeOffsetPx,
   });
   const pointsWithArrow = adjustPointsForArrowhead({
     points,
-    targetX,
-    targetY,
-    targetPosition,
+    targetX: logicalTargetX,
+    targetY: logicalTargetY,
+    targetPosition: transposePosition(targetPosition),
   });
+  const renderPoints = pointsWithArrow.map(transposePoint);
   const edgePath = invalid
-    ? buildJaggedOrthogonalPath(pointsWithArrow)
-    : pointsToPath(pointsWithArrow);
+    ? buildJaggedOrthogonalPath(renderPoints)
+    : pointsToPath(renderPoints);
 
   const stroke = (style?.stroke as string) ?? getRelationColor(relationType);
   const isSelected = selected ?? false;
   const bandStrokeWidth =
     relationType === "ad" ? 14 : relationType === "cd" ? 12 : 12;
   const bandOpacity = relationType === "ad" ? 0.25 : 0.22;
-  const labelAnchor = getHorizontalLabelAnchor(pointsWithArrow);
+  const labelAnchor = (() => {
+    let best: { x: number; y: number; length: number } | null = null;
+
+    for (let i = 0; i < renderPoints.length - 1; i += 1) {
+      const start = renderPoints[i];
+      const end = renderPoints[i + 1];
+      if (!start || !end) {
+        continue;
+      }
+      const isAxisAligned = start.x === end.x || start.y === end.y;
+      if (!isAxisAligned) {
+        continue;
+      }
+
+      const length = Math.hypot(end.x - start.x, end.y - start.y);
+      if (!best || length > best.length) {
+        best = {
+          x: (start.x + end.x) / 2,
+          y: (start.y + end.y) / 2,
+          length,
+        };
+      }
+    }
+
+    return best ? { x: best.x, y: best.y } : null;
+  })();
   const isLabelEligible = !isGenerated && !isDependencyBand && !!labelAnchor;
   const shouldShowByMode =
     edgeLabelMode === "all"
@@ -540,7 +590,7 @@ const RelationEdge = ({
       {showLabel && labelAnchor ? (
         <EdgeLabelRenderer>
           <div
-            className="nodrag nopan relative z-10 max-w-[180px] truncate rounded-full border bg-white px-2 py-0.5 text-[10px] font-semibold shadow-md"
+            className="nodrag nopan relative z-10 inline-flex w-max items-center rounded-full border bg-white px-2 py-0.5 text-[10px] font-semibold shadow-md"
             style={{
               position: "absolute",
               transform: `translate(-50%, -50%) translate(${labelAnchor.x}px, ${labelAnchor.y}px)`,

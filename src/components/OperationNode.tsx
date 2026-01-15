@@ -163,7 +163,7 @@ const OperationNode = ({ data, selected }: NodeProps<TraceNodeData>) => {
     >
       <Handle
         type="target"
-        position={Position.Left}
+        position={Position.Top}
         className="!h-1.5 !w-1.5 !bg-slate-700"
       />
       <div className="font-semibold">{label}</div>
@@ -172,7 +172,7 @@ const OperationNode = ({ data, selected }: NodeProps<TraceNodeData>) => {
       </div>
       <Handle
         type="source"
-        position={Position.Right}
+        position={Position.Bottom}
         className="!h-1.5 !w-1.5 !bg-slate-700"
       />
     </div>

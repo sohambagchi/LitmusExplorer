@@ -36,39 +36,39 @@ const BranchNode = ({ id, data, selected }: NodeProps<TraceNodeData>) => {
       </div>
       <Handle
         type="target"
-        position={Position.Left}
+        position={Position.Top}
         className="!h-1.5 !w-1.5 !bg-slate-700"
         style={{
-          left: "-20.7107%",
-          top: "50%",
+          left: "50%",
+          top: "-20.7107%",
           transform: "translate(-50%, -50%)",
         }}
       />
       <Handle
         type="source"
-        position={Position.Right}
+        position={Position.Bottom}
         className="!h-2 !w-2 !bg-emerald-600"
         id="then"
         style={{
-          left: "85.3553%",
-          right: "auto",
-          top: "14.6447%",
-          transform: "translate(-50%, -50%)",
-        }}
-      />
-      <Handle
-        type="source"
-        position={Position.Right}
-        className="!h-2 !w-2 !bg-rose-600"
-        id="else"
-        style={{
-          left: "85.3553%",
-          right: "auto",
+          bottom: "auto",
+          left: "14.6447%",
           top: "85.3553%",
           transform: "translate(-50%, -50%)",
         }}
       />
-      <div className="absolute left-1/2 top-full mt-1.5 flex -translate-x-1/2 items-center gap-1">
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className="!h-2 !w-2 !bg-rose-600"
+        id="else"
+        style={{
+          bottom: "auto",
+          left: "85.3553%",
+          top: "85.3553%",
+          transform: "translate(-50%, -50%)",
+        }}
+      />
+      <div className="absolute left-full top-1/2 ml-2 flex -translate-y-1/2 items-center gap-1">
         <div
           className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ${
             evaluatedPath === "then"

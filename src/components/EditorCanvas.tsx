@@ -38,13 +38,13 @@ import ConfirmDialog from "./ConfirmDialog";
 import { exportReactFlowViewportToPng } from "../utils/exportReactFlowPng";
 import { Trash2 } from "lucide-react";
 
-const LANE_HEIGHT = 120;
-const LANE_LABEL_WIDTH = 64;
-const GRID_X = 80;
+const LANE_WIDTH = 260;
+const LANE_LABEL_HEIGHT = 64;
+const GRID_Y = 80;
 const MIN_SEQUENCE_INDEX = 1;
-const MAX_CANVAS_X = 200_000;
+const MAX_CANVAS_Y = 200_000;
 const PAN_SPEED = 1;
-const CANVAS_NODE_ORIGIN: [number, number] = [0, 0.5];
+const CANVAS_NODE_ORIGIN: [number, number] = [0.5, 0];
 
 const DEFAULT_EDGE_ARROW_COLOR = "#0f172a";
 
@@ -102,20 +102,32 @@ const MEMORY_SECTIONS: { label: string; scope: MemoryScope }[] = [
   { label: "Shared", scope: "shared" },
 ];
 
-const getLaneY = (index: number) => index * LANE_HEIGHT + LANE_HEIGHT / 2;
+const getLaneX = (index: number) => index * LANE_WIDTH + LANE_WIDTH / 2;
 
-const getLaneIndexFromY = (y: number, laneCount: number) => {
+const getLaneIndexFromX = (x: number, laneCount: number) => {
   if (laneCount <= 0) {
     return 0;
   }
-  const index = Math.floor(y / LANE_HEIGHT);
+  const index = Math.floor(x / LANE_WIDTH);
   return Math.max(0, Math.min(index, laneCount - 1));
 };
 
-const getSequenceIndex = (x: number) =>
-  Math.max(MIN_SEQUENCE_INDEX, Math.round(x / GRID_X));
+const getSequenceIndex = (y: number) =>
+  Math.max(MIN_SEQUENCE_INDEX, Math.round(y / GRID_Y));
 
-const getSequenceX = (sequenceIndex: number) => sequenceIndex * GRID_X;
+const getSequenceY = (sequenceIndex: number) => sequenceIndex * GRID_Y;
+
+/**
+ * The store persists node positions in "litmus space":
+ * - `position.x`: time (sequence axis)
+ * - `position.y`: thread lane center
+ *
+ * The canvas renders with time increasing downward, so React Flow receives
+ * transposed positions at the boundary:
+ * - render `x` = store `y` (threads left→right)
+ * - render `y` = store `x` (time top→bottom)
+ */
+const transposeXY = ({ x, y }: { x: number; y: number }) => ({ x: y, y: x });
 
 const createMemoryId = () =>
   `mem-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -196,30 +208,20 @@ const LaneBackgroundOverlay = ({
 }: {
   threads: string[];
 }) => (
-  <div className="pointer-events-none absolute inset-0 z-0">
+  <div className="pointer-events-none absolute inset-0 z-0 flex">
     {threads.map((threadId, index) => (
       <div
         key={`${threadId}-${index}`}
-        className={`relative border-b border-slate-200 ${
+        className={`relative border-r border-slate-200 ${
           index % 2 === 0 ? "bg-white" : "bg-slate-50"
         }`}
-        style={{ height: LANE_HEIGHT }}
-      >
-        <div
-          className="absolute inset-y-0 left-0 border-r border-slate-200 bg-slate-100/85"
-          style={{ width: LANE_LABEL_WIDTH }}
-        />
-      </div>
+        style={{ width: LANE_WIDTH }}
+      />
     ))}
     <div
-      className="relative border-b border-dashed border-slate-300 bg-slate-200/40"
-      style={{ height: LANE_HEIGHT }}
-    >
-      <div
-        className="absolute inset-y-0 left-0 border-r border-dashed border-slate-300 bg-slate-100/85"
-        style={{ width: LANE_LABEL_WIDTH }}
-      />
-    </div>
+      className="relative border-r border-dashed border-slate-300 bg-slate-200/40"
+      style={{ width: LANE_WIDTH }}
+    />
   </div>
 );
 
@@ -235,14 +237,14 @@ const LaneLabelsOverlay = ({
   onRequestDeleteThread: (threadId: string) => void;
 }) => (
   <div
-    className="pointer-events-none absolute inset-y-0 left-0 z-20"
-    style={{ width: LANE_LABEL_WIDTH }}
+    className="pointer-events-none absolute inset-x-0 top-0 z-20 flex border-b border-slate-200 bg-slate-100/85"
+    style={{ height: LANE_LABEL_HEIGHT }}
   >
     {threads.map((threadId, index) => (
       <div
         key={`${threadId}-${index}`}
-        className="relative flex items-center justify-center border-b border-slate-200 bg-slate-100/85"
-        style={{ height: LANE_HEIGHT }}
+        className="relative flex items-center justify-center border-r border-slate-200"
+        style={{ width: LANE_WIDTH }}
       >
         <div className="pointer-events-auto flex items-center gap-1 rounded bg-slate-900 px-2 py-1 text-[10px] font-semibold text-white">
           <span>{threadId}</span>
@@ -265,8 +267,8 @@ const LaneLabelsOverlay = ({
       </div>
     ))}
     <div
-      className="relative flex flex-col items-center justify-center gap-1 border-b border-dashed border-slate-300 bg-slate-100/85"
-      style={{ height: LANE_HEIGHT }}
+      className="relative flex flex-col items-center justify-center gap-1 border-r border-dashed border-slate-300"
+      style={{ width: LANE_WIDTH }}
     >
       <div className="rounded bg-slate-700/80 px-2 py-1 text-[10px] font-semibold text-white/90">
         {nextThreadId}
@@ -720,17 +722,17 @@ const EditorCanvas = () => {
     [threadsForLayout.length]
   );
 
-  const canvasHeight = useMemo(
-    () => Math.max(1, displayLaneCount) * LANE_HEIGHT,
+  const canvasWidth = useMemo(
+    () => Math.max(1, displayLaneCount) * LANE_WIDTH,
     [displayLaneCount]
   );
 
   const translateExtent = useMemo<[[number, number], [number, number]]>(
     () => [
       [0, 0],
-      [MAX_CANVAS_X, canvasHeight],
+      [canvasWidth, MAX_CANVAS_Y],
     ],
-    [canvasHeight]
+    [canvasWidth]
   );
 
   const handleWheelPan = useCallback(
@@ -748,6 +750,10 @@ const EditorCanvas = () => {
         return;
       }
 
+      if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
+        return;
+      }
+
       event.preventDefault();
 
       const viewport = flow.getViewport();
@@ -758,7 +764,7 @@ const EditorCanvas = () => {
 
       flow.setViewport({
         ...viewport,
-        x: Math.min(0, viewport.x - delta * PAN_SPEED),
+        y: Math.min(0, viewport.y - delta * PAN_SPEED),
       });
     },
     []
@@ -821,31 +827,52 @@ const EditorCanvas = () => {
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
       setNodes((current) => {
-        const next = applyNodeChanges(changes, current);
-        const yOverrides = new Map<string, number>();
+        const next = applyNodeChanges(
+          changes.map((change) => {
+            if (change.type !== "position" || typeof change.position === "undefined") {
+              return change;
+            }
+
+            const laneIndex = getLaneIndexFromX(
+              change.position.x,
+              displayLaneCount
+            );
+
+            return {
+              ...change,
+              // Persist in litmus space by transposing render coordinates.
+              position: transposeXY({
+                x: getLaneX(laneIndex),
+                y: change.position.y,
+              }),
+            };
+          }),
+          current
+        );
+        const laneOverrides = new Map<string, number>();
 
         for (const change of changes) {
           if (change.type !== "position" || typeof change.position === "undefined") {
             continue;
           }
-          const laneIndex = getLaneIndexFromY(change.position.y, displayLaneCount);
-          yOverrides.set(change.id, getLaneY(laneIndex));
+          const laneIndex = getLaneIndexFromX(change.position.x, displayLaneCount);
+          laneOverrides.set(change.id, getLaneX(laneIndex));
         }
 
-        if (yOverrides.size === 0) {
+        if (laneOverrides.size === 0) {
           return next;
         }
 
         return next.map((node) => {
-          const y = yOverrides.get(node.id);
-          if (typeof y === "undefined") {
+          const lane = laneOverrides.get(node.id);
+          if (typeof lane === "undefined") {
             return node;
           }
           return {
             ...node,
             position: {
               ...node.position,
-              y,
+              y: lane,
             },
           };
         });
@@ -900,7 +927,7 @@ const EditorCanvas = () => {
 
   const handleNodeDragStop = useCallback(
     (_event: MouseEvent, node: TraceNode) => {
-      const laneIndex = getLaneIndexFromY(node.position.y, displayLaneCount);
+      const laneIndex = getLaneIndexFromX(node.position.x, displayLaneCount);
       const isAddLane = laneIndex >= threadsForLayout.length;
       const threadId = isAddLane
         ? addThread()
@@ -911,13 +938,13 @@ const EditorCanvas = () => {
             return currentNode;
           }
 
-          const sequenceIndex = getSequenceIndex(node.position.x);
+          const sequenceIndex = getSequenceIndex(node.position.y);
 
           return {
             ...currentNode,
             position: {
-              x: getSequenceX(sequenceIndex),
-              y: getLaneY(laneIndex),
+              x: getSequenceY(sequenceIndex),
+              y: getLaneX(laneIndex),
             },
             data: {
               ...currentNode.data,
@@ -958,19 +985,19 @@ const EditorCanvas = () => {
         y: event.clientY - bounds.top,
       });
 
-      const laneIndex = getLaneIndexFromY(position.y, displayLaneCount);
+      const laneIndex = getLaneIndexFromX(position.x, displayLaneCount);
       const isAddLane = laneIndex >= threadsForLayout.length;
       const threadId = isAddLane
         ? addThread()
         : (threadsForLayout[laneIndex] ?? "T0");
-      const sequenceIndex = getSequenceIndex(position.x);
+      const sequenceIndex = getSequenceIndex(position.y);
 
       const newNode: TraceNode = {
         id: `node-${idCounter.current++}`,
         type: nodeType as "operation" | "branch",
         position: {
-          x: getSequenceX(sequenceIndex),
-          y: getLaneY(laneIndex),
+          x: getSequenceY(sequenceIndex),
+          y: getLaneX(laneIndex),
         },
         data: {
           threadId,
@@ -1024,8 +1051,8 @@ const EditorCanvas = () => {
     let didChange = false;
     const normalized = nodes.map((node) => {
       const laneIndex = laneByThread.get(node.data.threadId) ?? 0;
-      const nextY = getLaneY(laneIndex);
-      if (node.position.y === nextY) {
+      const nextLane = getLaneX(laneIndex);
+      if (node.position.y === nextLane) {
         return node;
       }
       didChange = true;
@@ -1033,7 +1060,7 @@ const EditorCanvas = () => {
         ...node,
         position: {
           ...node.position,
-          y: nextY,
+          y: nextLane,
         },
       };
     });
@@ -1219,10 +1246,10 @@ const EditorCanvas = () => {
 	        </div>
       </div>
       <div className="flex min-h-0 flex-1 flex-col bg-slate-100">
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
           <div
-            className="relative w-full"
-            style={{ height: canvasHeight }}
+            className="relative h-full"
+            style={{ width: canvasWidth }}
             onWheelCapture={handleWheelPan}
             ref={reactFlowWrapperRef}
           >
@@ -1230,7 +1257,10 @@ const EditorCanvas = () => {
               threads={threadsForLayout}
             />
             <ReactFlow
-              nodes={visibleNodes}
+              nodes={visibleNodes.map((node) => ({
+                ...node,
+                position: transposeXY(node.position),
+              }))}
               edges={edgesToRenderWithArrows}
               nodeTypes={nodeTypes}
               edgeTypes={edgeTypes}
@@ -1276,7 +1306,7 @@ const EditorCanvas = () => {
             >
               <Background
                 id="timeline-grid"
-                gap={[GRID_X, LANE_HEIGHT]}
+                gap={[LANE_WIDTH, GRID_Y]}
                 color="rgba(148, 163, 184, 0.35)"
                 variant={BackgroundVariant.Lines}
               />

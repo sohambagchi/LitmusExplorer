@@ -57,7 +57,13 @@ const opLabels: Record<OperationType, string> = {
   BRANCH: "BR",
 };
 
-const getOrderShort = (order: string) => {
+/**
+ * Returns the canonical short token used in operation labels for a memory order.
+ *
+ * @param order - Memory-order string as stored in the session/model config.
+ * @returns Canonical short token (e.g. `Acq`, `Rel`, `Rlx`, `Acq_Rel`, `SC`).
+ */
+const getOrderToken = (order: string) => {
   switch (order) {
     case "Acquire":
       return "Acq";
@@ -66,14 +72,46 @@ const getOrderShort = (order: string) => {
     case "Relaxed":
       return "Rlx";
     case "Acq_Rel":
-      return "AcqRel";
+      return "Acq_Rel";
     case "SC":
       return "SC";
     case "Standard":
-      return "Std";
+      return "";
     default:
       return order;
   }
+};
+
+/**
+ * Formats a memory order as a dotted suffix for uniform node labels.
+ *
+ * Examples:
+ * - `Acquire` -> `.Acq`
+ * - `Standard`/`undefined` -> ``
+ */
+const formatOrderSuffix = (order: string | undefined) => {
+  if (!order) {
+    return "";
+  }
+  const token = getOrderToken(order);
+  return token ? `.${token}` : "";
+};
+
+/**
+ * Formats a CAS/RMW order pair as a dotted suffix.
+ *
+ * Example: (`Release`, `Relaxed`) -> `.Rel.Rlx`
+ */
+const formatCasOrderSuffix = (
+  successOrder: string | undefined,
+  failureOrder: string | undefined
+) => {
+  if (!successOrder && !failureOrder) {
+    return "";
+  }
+  const successToken = successOrder ? getOrderToken(successOrder) : "?";
+  const failureToken = failureOrder ? getOrderToken(failureOrder) : "?";
+  return `.${successToken || "?"}.${failureToken || "?"}`;
 };
 
 const formatMemoryLabel = (
@@ -115,71 +153,66 @@ const OperationNode = ({ data, selected }: NodeProps<TraceNodeData>) => {
       isArrayAddress && baseAddressLabel && indexLabel
         ? `${baseAddressLabel}[${indexLabel}]`
         : baseAddressLabel;
-    const baseOrder = op.memoryOrder ? ` (${getOrderShort(op.memoryOrder)})` : "";
+    const baseOrderSuffix = formatOrderSuffix(op.memoryOrder);
 
     if (op.text) {
       return op.text;
     }
 
     if (op.type === "FENCE") {
-      return `${opLabel}${baseOrder}`;
+      return `${opLabel}${baseOrderSuffix}`;
     }
 
     if (op.type === "LOAD") {
-      const address = addressLabel ? ` ${addressLabel}` : "";
       const resolvedResult = op.resultId
         ? formatMemoryLabel(memoryById.get(op.resultId), memoryById)
         : "";
       const resultLabel = resolvedResult || "";
+      const address = addressLabel || "?";
+      const expression = `${opLabel}${baseOrderSuffix}(${address})`;
       return resultLabel
-        ? `${resultLabel} = ${opLabel}${address}${baseOrder}`
-        : `${opLabel}${address}${baseOrder}`;
+        ? `${resultLabel} = ${expression}`
+        : expression;
     }
 
     if (op.type === "STORE") {
-      const address = addressLabel ? ` ${addressLabel}` : "";
       const resolvedValue = op.valueId
         ? formatMemoryLabel(memoryById.get(op.valueId), memoryById)
         : "";
       const valueLabel =
         resolvedValue ||
         (op.value !== undefined ? String(op.value) : "");
-      const value = valueLabel ? ` = ${valueLabel}` : "";
-      return `${opLabel}${address}${value}${baseOrder}`;
+      const address = addressLabel || "?";
+      const value = valueLabel || "?";
+      return `${opLabel}${baseOrderSuffix}(${address}, ${value})`;
     }
 
     if (op.type === "RMW") {
-      const address = addressLabel ? ` ${addressLabel}` : "";
       const resolvedResult = op.resultId
         ? formatMemoryLabel(memoryById.get(op.resultId), memoryById)
         : "";
       const resultLabel = resolvedResult || "";
+      const address = addressLabel || "?";
       const expected = op.expectedValueId
         ? formatMemoryLabel(memoryById.get(op.expectedValueId), memoryById)
         : "";
       const desired = op.desiredValueId
         ? formatMemoryLabel(memoryById.get(op.desiredValueId), memoryById)
         : "";
-      const casValues =
-        expected || desired ? ` (${expected || "?"}→${desired || "?"})` : "";
-      const successOrder = op.successMemoryOrder
-        ? getOrderShort(op.successMemoryOrder)
-        : "";
-      const failureOrder = op.failureMemoryOrder
-        ? getOrderShort(op.failureMemoryOrder)
-        : "";
-      const casOrders =
-        successOrder || failureOrder
-          ? ` [${successOrder || "?"}/${failureOrder || "?"}]`
-          : "";
+      const casOrderSuffix = formatCasOrderSuffix(
+        op.successMemoryOrder,
+        op.failureMemoryOrder
+      );
+      const casValues = `${address}, ${expected || "?"}, ${desired || "?"}`;
+      const expression = `CAS${casOrderSuffix}(${casValues})`;
 
       return resultLabel
-        ? `${resultLabel} = CAS${address}${casValues}${casOrders}`
-        : `CAS${address}${casValues}${casOrders}`;
+        ? `${resultLabel} = ${expression}`
+        : expression;
     }
 
-    const address = addressLabel ? ` ${addressLabel}` : "";
-    return `${opLabel}${address}${baseOrder}`;
+    const address = addressLabel || "?";
+    return `${opLabel}${baseOrderSuffix}(${address})`;
   }, [data.operation, memoryById]);
 
   const casBackgroundStyle =

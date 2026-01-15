@@ -329,19 +329,37 @@ const buildOrthogonalPoints = ({
   rowMaxSourceNodeBottomX?: number;
   edgeExitOffsetPx?: number;
 }) => {
-  if (Math.abs(sourceY - targetY) <= STRAIGHT_EPSILON_PX) {
-    return simplifyPoints([
-      { x: sourceX, y: sourceY },
-      { x: targetX, y: targetY },
-    ]);
-  }
-
   const sourceThreadId = sourceNode?.data?.threadId;
   const targetThreadId = targetNode?.data?.threadId;
   const sameThread =
     sourceThreadId !== undefined &&
     targetThreadId !== undefined &&
     sourceThreadId === targetThreadId;
+
+  /**
+   * Intra-thread (same-lane) edges have nearly identical lane-axis coordinates,
+   * which can trigger a naive straight-line optimization. For long edges that
+   * span multiple sequence rows, a straight vertical segment runs directly
+   * through intermediate nodes in the lane.
+   *
+   * To keep edges from intersecting nodes, only allow the straight-line shortcut
+   * when the endpoints are adjacent rows (no intermediate nodes can be in the way).
+   */
+  if (Math.abs(sourceY - targetY) <= STRAIGHT_EPSILON_PX) {
+    const sourceSeq = sourceNode?.data?.sequenceIndex;
+    const targetSeq = targetNode?.data?.sequenceIndex;
+    const isAdjacentRow =
+      typeof sourceSeq === "number" &&
+      typeof targetSeq === "number" &&
+      Math.abs(sourceSeq - targetSeq) <= 1;
+
+    if (!sameThread || isAdjacentRow) {
+      return simplifyPoints([
+        { x: sourceX, y: sourceY },
+        { x: targetX, y: targetY },
+      ]);
+    }
+  }
 
   const getCenterY = (node: Node<TraceNodeData> | undefined, y: number) =>
     node?.position?.y ?? y;

@@ -41,6 +41,7 @@ const App = () => {
   const modelConfig = useStore((state) => state.modelConfig);
   const memoryEnv = useStore((state) => state.memoryEnv);
   const threads = useStore((state) => state.threads);
+  const threadLabels = useStore((state) => state.threadLabels);
   const activeBranch = useStore((state) => state.activeBranch);
   const importSession = useStore((state) => state.importSession);
   const seeded = useRef(false);
@@ -87,6 +88,7 @@ const App = () => {
         nodes,
         edges,
         threads,
+        threadLabels,
         activeBranch,
       });
 
@@ -115,6 +117,7 @@ const App = () => {
       modelConfig,
       nodes,
       setSessionTitle,
+      threadLabels,
       threads,
     ]
   );

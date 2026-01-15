@@ -20,6 +20,7 @@ import { checkEdgeConstraints } from "../utils/edgeConstraints";
 import { DEFAULT_MODEL_CONFIG } from "../config/defaultModelConfig";
 import { analyzeCatFiles, type CatModelAnalysis } from "../cat/catParser";
 import { createSessionFingerprint } from "../session/sessionFingerprint";
+import { createUuid } from "../utils/createUuid";
 
 type NodesUpdater = TraceNode[] | ((nodes: TraceNode[]) => TraceNode[]);
 type EdgesUpdater = RelationEdge[] | ((edges: RelationEdge[]) => RelationEdge[]);
@@ -93,6 +94,21 @@ type StoreState = {
   onEdgesChange: (changes: EdgeChange[]) => void;
   deleteNode: (nodeId: string) => void;
   deleteThread: (threadId: string) => void;
+  /**
+   * Duplicate all nodes/edges belonging to a thread into a brand new thread.
+   *
+   * The new thread receives:
+   * - cloned nodes with new ids and updated `threadId`
+   * - cloned intra-thread edges (where both endpoints are in the duplicated set)
+   *
+   * Notes:
+   * - cross-thread edges are intentionally not duplicated
+   * - branch metadata (`branchId`) is remapped when it points at a duplicated node
+   *
+   * @param sourceThreadId - Thread id to duplicate.
+   * @returns Newly created thread id.
+   */
+  duplicateThread: (sourceThreadId: string) => string;
   addMemoryVar: (variable: MemoryVariable) => void;
   updateMemoryVar: (id: string, updates: Partial<MemoryVariable>) => void;
   deleteMemoryVar: (id: string) => void;
@@ -215,6 +231,23 @@ const getNextThreadId = (threads: string[]) => {
     candidate = `T${nextIndex}`;
   }
 
+  return candidate;
+};
+
+/**
+ * Create a globally-unique React Flow id with a stable prefix.
+ *
+ * @param prefix - Human-friendly id prefix (`node` / `edge`).
+ * @param takenIds - Set of ids that are already used.
+ */
+const createUniqueReactFlowId = (
+  prefix: "node" | "edge",
+  takenIds: Set<string>
+) => {
+  let candidate = `${prefix}-${createUuid()}`;
+  while (takenIds.has(candidate)) {
+    candidate = `${prefix}-${createUuid()}`;
+  }
   return candidate;
 };
 
@@ -530,6 +563,93 @@ export const useStore = create<StoreState>()((set, get) => ({
     });
 
     get().validateGraph();
+  },
+  duplicateThread: (sourceThreadId) => {
+    const { nodes, edges, threads, threadLabels } = get();
+
+    /**
+     * Thread ids can originate from sessions (imports/shares) and may be present
+     * on nodes even if the `threads` list is incomplete. Consider both sources
+     * to ensure we always mint a truly new thread id.
+     */
+    const takenThreadIds = new Set<string>(threads);
+    for (const node of nodes) {
+      takenThreadIds.add(node.data.threadId);
+    }
+    const nextThreadId = getNextThreadId(Array.from(takenThreadIds));
+
+    const sourceNodes = nodes.filter((node) => node.data.threadId === sourceThreadId);
+    const sourceNodeIds = new Set(sourceNodes.map((node) => node.id));
+
+    const takenNodeIds = new Set(nodes.map((node) => node.id));
+    const idMap = new Map<string, string>();
+    for (const sourceId of sourceNodeIds) {
+      const nextId = createUniqueReactFlowId("node", takenNodeIds);
+      takenNodeIds.add(nextId);
+      idMap.set(sourceId, nextId);
+    }
+
+    // Append the new thread at the end of the explicit `threads` ordering.
+    const laneCenter = getLaneX(threads.length);
+
+    const duplicatedNodes: TraceNode[] = sourceNodes.map((node) => {
+      const nextId = idMap.get(node.id)!;
+
+      const nextBranchId =
+        node.data.branchId && idMap.has(node.data.branchId)
+          ? idMap.get(node.data.branchId)
+          : node.data.branchId;
+
+      return {
+        ...node,
+        id: nextId,
+        selected: false,
+        position: {
+          ...node.position,
+          y: laneCenter,
+        },
+        data: {
+          ...node.data,
+          threadId: nextThreadId,
+          branchId: nextBranchId,
+        },
+      };
+    });
+
+    const takenEdgeIds = new Set(edges.map((edge) => edge.id));
+    const duplicatedEdges: RelationEdge[] = edges
+      .filter((edge) => sourceNodeIds.has(edge.source) && sourceNodeIds.has(edge.target))
+      .map((edge) => {
+        const nextSource = idMap.get(edge.source)!;
+        const nextTarget = idMap.get(edge.target)!;
+
+        const nextId = createUniqueReactFlowId("edge", takenEdgeIds);
+        takenEdgeIds.add(nextId);
+
+        return {
+          ...edge,
+          id: nextId,
+          source: nextSource,
+          target: nextTarget,
+          selected: false,
+        };
+      });
+
+    const sourceLabel = threadLabels[sourceThreadId]?.trim();
+    const nextThreadLabels = { ...threadLabels };
+    if (sourceLabel) {
+      nextThreadLabels[nextThreadId] = `${sourceLabel} (copy)`;
+    }
+
+    set({
+      threads: [...threads, nextThreadId],
+      threadLabels: nextThreadLabels,
+      nodes: [...nodes, ...duplicatedNodes],
+      edges: [...edges, ...duplicatedEdges],
+    });
+
+    get().validateGraph();
+    return nextThreadId;
   },
   addMemoryVar: (variable) =>
     set((state) => ({ memoryEnv: [...state.memoryEnv, variable] })),

@@ -37,7 +37,7 @@ import { createBranchGroupCondition } from "../utils/branchConditionFactory";
 import { evaluateBranchCondition } from "../utils/branchEvaluation";
 import ConfirmDialog from "./ConfirmDialog";
 import { exportReactFlowViewportToPng } from "../utils/exportReactFlowPng";
-import { Trash2 } from "lucide-react";
+import { Copy, Trash2 } from "lucide-react";
 import { createUuid } from "../utils/createUuid";
 import { resolvePointerTargetById } from "../utils/resolvePointers";
 
@@ -273,6 +273,7 @@ const LaneLabelsOverlay = ({
   nextThreadId,
   nodeCountsByThread,
   onRequestDeleteThread,
+  onDuplicateThread,
   threadLabels,
   onSetThreadLabel,
 }: {
@@ -280,6 +281,7 @@ const LaneLabelsOverlay = ({
   nextThreadId: string;
   nodeCountsByThread: Map<string, number>;
   onRequestDeleteThread: (threadId: string) => void;
+  onDuplicateThread: (threadId: string) => void;
   threadLabels: Record<string, string>;
   onSetThreadLabel: (threadId: string, label: string) => void;
 }) => (
@@ -298,21 +300,39 @@ const LaneLabelsOverlay = ({
             <div className="flex h-5 items-center rounded px-2 text-[11px] font-semibold leading-none text-white">
               {threadId}
             </div>
-            <button
-              type="button"
-              className="flex h-5 w-5 items-center justify-center rounded border border-white/10 bg-white/5 text-[11px] font-semibold leading-none text-white hover:bg-white/10"
-              onMouseDown={(event) => {
-                event.stopPropagation();
-              }}
-              onClick={(event) => {
-                event.stopPropagation();
-                onRequestDeleteThread(threadId);
-              }}
-              title={`Delete ${threadId} (${nodeCountsByThread.get(threadId) ?? 0} nodes)`}
-              aria-label={`Delete ${threadId}`}
-            >
-              ✕
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                className="flex h-5 w-5 items-center justify-center rounded border border-white/10 bg-white/5 text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white/5"
+                disabled={(nodeCountsByThread.get(threadId) ?? 0) === 0}
+                onMouseDown={(event) => {
+                  event.stopPropagation();
+                }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onDuplicateThread(threadId);
+                }}
+                title={`Duplicate ${threadId} (${nodeCountsByThread.get(threadId) ?? 0} nodes)`}
+                aria-label={`Duplicate ${threadId}`}
+              >
+                <Copy className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                className="flex h-5 w-5 items-center justify-center rounded border border-white/10 bg-white/5 text-[11px] font-semibold leading-none text-white hover:bg-white/10"
+                onMouseDown={(event) => {
+                  event.stopPropagation();
+                }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRequestDeleteThread(threadId);
+                }}
+                title={`Delete ${threadId} (${nodeCountsByThread.get(threadId) ?? 0} nodes)`}
+                aria-label={`Delete ${threadId}`}
+              >
+                ✕
+              </button>
+            </div>
           </div>
           <input
             value={threadLabels[threadId] ?? ""}
@@ -356,6 +376,7 @@ const EditorCanvas = () => {
   const setEdges = useStore((state) => state.setEdges);
   const addThread = useStore((state) => state.addThread);
   const deleteThread = useStore((state) => state.deleteThread);
+  const duplicateThread = useStore((state) => state.duplicateThread);
   const setThreadLabel = useStore((state) => state.setThreadLabel);
   const addMemoryVar = useStore((state) => state.addMemoryVar);
   const updateMemoryVar = useStore((state) => state.updateMemoryVar);
@@ -1621,11 +1642,12 @@ const EditorCanvas = () => {
 	                </ReactFlow>
 	              </div>
 	            </div>
-	            <LaneLabelsOverlay
+            <LaneLabelsOverlay
 	              threads={threadsForLayout}
 	              nextThreadId={nextThreadId}
 	              nodeCountsByThread={nodeCountsByThread}
               onRequestDeleteThread={requestDeleteThread}
+              onDuplicateThread={duplicateThread}
               threadLabels={threadLabels}
               onSetThreadLabel={setThreadLabel}
             />

@@ -28,6 +28,7 @@ Open the dev server URL printed by Vite.
   thread lane.
 - Use the Properties panel to edit address/value/memory-order metadata.
 - Click "Validate Graph" to flag invalid read-from edges.
+- Click "Share" to generate a UUID link (requires Supabase config; see `docs/sharing.md`).
 
 ## Tech Stack
 - React 18, React DOM 18

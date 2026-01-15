@@ -3,11 +3,19 @@ import { useEffect, useId, useRef, useState } from "react";
 const SessionTitleDialog = ({
   open,
   initialValue,
+  title = "Name session",
+  description = "This name is saved in the exported JSON and shown after import.",
+  inputLabel = "Session name",
+  confirmLabel = "Export",
   onCancel,
   onConfirm,
 }: {
   open: boolean;
   initialValue: string;
+  title?: string;
+  description?: string;
+  inputLabel?: string;
+  confirmLabel?: string;
   onCancel: () => void;
   onConfirm: (title: string) => void;
 }) => {
@@ -38,7 +46,7 @@ const SessionTitleDialog = ({
       className="fixed inset-0 z-50 flex items-center justify-center px-4"
       role="dialog"
       aria-modal="true"
-      aria-label="Name session"
+      aria-label={title}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) {
           onCancel();
@@ -47,16 +55,14 @@ const SessionTitleDialog = ({
     >
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
       <div className="relative w-full max-w-md rounded-xl border border-slate-200 bg-white p-4 shadow-xl ring-1 ring-slate-900/10">
-        <div className="text-sm font-semibold text-slate-900">Name session</div>
-        <div className="mt-2 text-sm text-slate-600">
-          This name is saved in the exported JSON and shown after import.
-        </div>
+        <div className="text-sm font-semibold text-slate-900">{title}</div>
+        <div className="mt-2 text-sm text-slate-600">{description}</div>
         <div className="mt-4 space-y-1.5">
           <label
             htmlFor={inputId}
             className="text-xs font-semibold text-slate-700"
           >
-            Session name
+            {inputLabel}
           </label>
           <input
             ref={inputRef}
@@ -92,7 +98,7 @@ const SessionTitleDialog = ({
             className="rounded bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
             onClick={submit}
           >
-            Export
+            {confirmLabel}
           </button>
         </div>
       </div>
@@ -101,4 +107,3 @@ const SessionTitleDialog = ({
 };
 
 export default SessionTitleDialog;
-

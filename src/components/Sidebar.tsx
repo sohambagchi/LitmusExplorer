@@ -17,6 +17,7 @@ import type {
 } from "../types";
 import { useStore } from "../store/useStore";
 import { parseSessionSnapshot } from "../session/parseSessionSnapshot";
+import { createSessionSnapshot } from "../session/createSessionSnapshot";
 import { checkEdgeConstraints } from "../utils/edgeConstraints";
 import BranchConditionEditor from "./BranchConditionEditor";
 import { evaluateBranchCondition } from "../utils/branchEvaluation";
@@ -261,21 +262,15 @@ const Sidebar = () => {
         .replace(/\s+/g, " ")
         .trim();
 
-      const memory = {
-        constants: memoryEnv.filter((item) => item.scope === "constants"),
-        locals: memoryEnv.filter((item) => item.scope === "locals"),
-        shared: memoryEnv.filter((item) => item.scope === "shared"),
-      };
-      const snapshot = {
-        title: normalizedTitle || undefined,
-        model: modelConfig,
-        memory,
+      const snapshot = createSessionSnapshot({
+        title: normalizedTitle,
+        modelConfig,
+        memoryEnv,
         nodes,
         edges,
         threads,
         activeBranch,
-        exportedAt: new Date().toISOString(),
-      };
+      });
       const blob = new Blob([JSON.stringify(snapshot, null, 2)], {
         type: "application/json",
       });

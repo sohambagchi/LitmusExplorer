@@ -23,7 +23,7 @@ Testing and linting scripts are not configured yet.
 - tailwindcss: ^3.4.7
 
 ## Coding Style & Naming Conventions
-Use TypeScript for all source files. Prefer 2-space indentation and consistent formatting via Prettier once configured; otherwise match existing file style. Component files use `PascalCase.tsx` (e.g., `OperationNode.tsx`), hooks use `useX.ts` (e.g., `useStore.ts`), and shared types live in `types.ts`. Keep Tailwind class lists ordered for readability, and use descriptive prop names aligned with the domain (e.g., `memoryOrder`, `threadId`).
+Use TypeScript for all source files. Prefer 2-space indentation and consistent formatting via Prettier once configured; otherwise match existing file style. Component files use `PascalCase.tsx` (e.g., `OperationNode.tsx`), hooks use `useX.ts` (e.g., `useStore.ts`), and shared types live in `types.ts`. Keep Tailwind class lists ordered for readability, and use descriptive prop names aligned with the domain (e.g., `memoryOrder`, `threadId`). Make sure to document each function, the arguments (required/optional and types), and include inline comments at crucial codepoints to guide future AGENT developers and HUMAN developers.
 
 ## Testing Guidelines
 Testing is not configured yet. When adding tests, standardize on a framework (e.g., Vitest + React Testing Library) and store tests alongside code as `*.test.tsx` or in `src/**/__tests__/`. Document any coverage thresholds in `package.json` and update this guide.

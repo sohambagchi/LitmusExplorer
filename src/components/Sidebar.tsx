@@ -24,6 +24,7 @@ import { createSessionFingerprint } from "../session/sessionFingerprint";
 import { checkEdgeConstraints } from "../utils/edgeConstraints";
 import BranchConditionEditor from "./BranchConditionEditor";
 import { evaluateBranchCondition } from "../utils/branchEvaluation";
+import { resolvePointerTargetById } from "../utils/resolvePointers";
 import SessionTitleDialog from "./SessionTitleDialog";
 import RelationDefinitionsDialog from "./RelationDefinitionsDialog";
 import TutorialDialog from "./TutorialDialog";
@@ -55,6 +56,7 @@ const TOOLBOX_ITEMS: ToolboxItem[] = [
 const MEMORY_ITEMS: { label: string; type: MemoryType }[] = [
   { label: "int", type: "int" },
   { label: "array", type: "array" },
+  { label: "ptr", type: "ptr" },
 ];
 
 const formatRelationTypeLabel = (relationType: RelationType) => {
@@ -497,16 +499,27 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
       .filter((option) => option.label);
   }, [memoryEnv]);
 
-  const localIntOptions = useMemo(() => {
+  const scalarOptions = useMemo(() => {
     const memoryById = new Map(memoryEnv.map((item) => [item.id, item]));
     return memoryEnv
-      .filter((item) => item.type === "int" && item.scope === "locals")
+      .filter((item) => item.type === "int" || item.type === "ptr")
       .map((item) => ({ value: item.id, label: formatMemoryLabel(item, memoryById) }))
       .filter((option) => option.label);
   }, [memoryEnv]);
 
-  const memoryTypeById = useMemo(
-    () => new Map(memoryEnv.map((item) => [item.id, item.type] as const)),
+  const localScalarOptions = useMemo(() => {
+    const memoryById = new Map(memoryEnv.map((item) => [item.id, item]));
+    return memoryEnv
+      .filter(
+        (item) =>
+          (item.type === "int" || item.type === "ptr") && item.scope === "locals"
+      )
+      .map((item) => ({ value: item.id, label: formatMemoryLabel(item, memoryById) }))
+      .filter((option) => option.label);
+  }, [memoryEnv]);
+
+  const memoryById = useMemo(
+    () => new Map(memoryEnv.map((item) => [item.id, item] as const)),
     [memoryEnv]
   );
 
@@ -961,7 +974,7 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
             Struct
           </button>
           <div className="text-xs text-slate-500">
-            Drag ints or arrays into Constants/Shared. Use + in Local Registers.
+            Drag ints, arrays, or ptrs into Constants/Shared. Use + in Local Registers.
             Select multiple items to enable Struct.
           </div>
         </div>
@@ -1064,17 +1077,20 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
 	                      selectedNode.data.operation.addressId,
 	                      selectedNode.data.threadId
 	                    )}
-	                    onChange={(event) =>
-	                      updateSelectedOperation({
-	                        addressId: event.target.value || undefined,
-	                        indexId:
-                          event.target.value &&
-                          memoryTypeById.get(event.target.value) === "array"
-                            ? selectedNode.data.operation.indexId
-                            : undefined,
-                      })
-                    }
-	                  >
+		                    onChange={(event) =>
+		                      updateSelectedOperation({
+		                        addressId: event.target.value || undefined,
+		                        indexId:
+		                          event.target.value &&
+		                          resolvePointerTargetById(
+		                            event.target.value,
+		                            memoryById
+		                          ).resolved?.type === "array"
+		                            ? selectedNode.data.operation.indexId
+		                            : undefined,
+		                      })
+		                    }
+		                  >
 	                    <option value="">Variable</option>
 	                    {filterOptionsForThread(
 	                      memoryOptions,
@@ -1102,7 +1118,7 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
                   >
                     <option value="">Result variable</option>
                     {filterOptionsForThread(
-                      localIntOptions,
+                      localScalarOptions,
                       selectedNode.data.threadId
                     ).map((option) => (
                       <option key={option.value} value={option.value}>
@@ -1127,7 +1143,7 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
                   >
                     <option value="">Result variable</option>
                     {filterOptionsForThread(
-                      localIntOptions,
+                      localScalarOptions,
                       selectedNode.data.threadId
                     ).map((option) => (
                       <option key={option.value} value={option.value}>
@@ -1138,10 +1154,13 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
                 ) : null}
 
                 {selectedNode.data.operation.type === "LOAD" ||
-                selectedNode.data.operation.type === "STORE" ? (
+                selectedNode.data.operation.type === "STORE" ||
+                selectedNode.data.operation.type === "RMW" ? (
                   selectedNode.data.operation.addressId &&
-                  memoryTypeById.get(selectedNode.data.operation.addressId) ===
-                    "array" ? (
+                  resolvePointerTargetById(
+                    selectedNode.data.operation.addressId,
+                    memoryById
+                  ).resolved?.type === "array" ? (
 	                    <select
 	                      className="w-full rounded border border-slate-300 px-2 py-1"
 	                      value={normalizeSelectionValue(
@@ -1183,7 +1202,7 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
 	                    >
 	                      <option value="">Value variable</option>
 	                      {filterOptionsForThread(
-	                        intOptions,
+	                        scalarOptions,
 	                        selectedNode.data.threadId
 	                      ).map((option) => (
 	                        <option key={option.value} value={option.value}>

@@ -1,6 +1,6 @@
 import type { Edge, Node } from "reactflow";
 
-export type MemoryType = "int" | "array" | "struct";
+export type MemoryType = "int" | "array" | "ptr" | "struct";
 export type MemoryScope = "constants" | "locals" | "shared";
 export type ComparisonOp = "==" | "<" | ">" | "<=" | ">=" | "!=";
 export type LogicalOp = "&&" | "||";
@@ -23,6 +23,19 @@ export type ArrayMemoryVariable = MemoryVariableBase & {
   size?: number;
 };
 
+export type PtrMemoryVariable = MemoryVariableBase & {
+  type: "ptr";
+  /**
+   * ID of the memory variable this pointer currently targets.
+   *
+   * Notes:
+   * - This is a symbolic "address" used by the editor; it may be self-referential
+   *   (points to itself) and is allowed to chain through other pointers.
+   * - The app resolves ptr chains defensively to avoid infinite loops.
+   */
+  pointsToId?: string;
+};
+
 export type StructMemoryVariable = MemoryVariableBase & {
   type: "struct";
 };
@@ -30,6 +43,7 @@ export type StructMemoryVariable = MemoryVariableBase & {
 export type MemoryVariable =
   | IntMemoryVariable
   | ArrayMemoryVariable
+  | PtrMemoryVariable
   | StructMemoryVariable;
 
 export type OperationType = "LOAD" | "STORE" | "RMW" | "FENCE" | "BRANCH";

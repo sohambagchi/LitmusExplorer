@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Handle, Position, type NodeProps } from "reactflow";
 import { useStore } from "../store/useStore";
+import { resolvePointerTargetById } from "../utils/resolvePointers";
 import type {
   MemoryVariable,
   OperationType,
@@ -138,13 +139,17 @@ const OperationNode = ({ data, selected }: NodeProps<TraceNodeData>) => {
   const label = useMemo(() => {
     const op = data.operation;
     const opLabel = opLabels[op.type];
-    const resolvedAddress = op.addressId
-      ? formatMemoryLabel(memoryById.get(op.addressId), memoryById)
-      : "";
-    const baseAddressLabel = resolvedAddress || op.address || "";
-    const isArrayAddress = op.addressId
-      ? memoryById.get(op.addressId)?.type === "array"
-      : false;
+    const baseAddressVar = op.addressId ? memoryById.get(op.addressId) : undefined;
+    const resolvedAddressVar = op.addressId
+      ? resolvePointerTargetById(op.addressId, memoryById).resolved
+      : undefined;
+    const baseAddressLabel =
+      baseAddressVar?.type === "ptr"
+        ? formatMemoryLabel(baseAddressVar, memoryById)
+        : resolvedAddressVar
+          ? formatMemoryLabel(resolvedAddressVar, memoryById)
+          : op.address || "";
+    const isArrayAddress = resolvedAddressVar?.type === "array";
     const resolvedIndex = op.indexId
       ? formatMemoryLabel(memoryById.get(op.indexId), memoryById)
       : "";

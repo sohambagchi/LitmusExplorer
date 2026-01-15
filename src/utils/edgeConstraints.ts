@@ -1,4 +1,5 @@
 import type { MemoryVariable, RelationType, TraceNode } from "../types";
+import { resolvePointerTargetById } from "./resolvePointers";
 
 export type EdgeConstraintResult = {
   allowed: boolean;
@@ -28,14 +29,17 @@ const resolveNodeAddressLabel = (
   const addressId = node.data.operation.addressId;
   const indexId = node.data.operation.indexId;
   if (addressId) {
-    const item = memoryById.get(addressId);
-    const baseLabel = item ? formatMemoryLabel(item, memoryById) : addressId;
+    const resolved = resolvePointerTargetById(addressId, memoryById).resolved;
+    const baseLabel = resolved ? formatMemoryLabel(resolved, memoryById) : addressId;
     const resolvedIndexItem = indexId ? memoryById.get(indexId) : undefined;
     const resolvedIndex = resolvedIndexItem
       ? formatMemoryLabel(resolvedIndexItem, memoryById)
       : "";
     const indexLabel = resolvedIndex || node.data.operation.index?.trim() || "";
-    if (indexLabel && (item?.type === "array" || indexId || node.data.operation.index)) {
+    if (
+      indexLabel &&
+      (resolved?.type === "array" || indexId || node.data.operation.index)
+    ) {
       return `${baseLabel}[${indexLabel}]`;
     }
     return baseLabel;

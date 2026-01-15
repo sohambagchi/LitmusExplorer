@@ -4,8 +4,23 @@ import type {
   BranchRuleCondition,
   MemoryVariable,
 } from "../types";
+import { resolvePointerTargetById } from "./resolvePointers";
 
-const parseMemoryNumericValue = (variable: MemoryVariable | undefined) => {
+/**
+ * Parses a branch-comparable value from a memory variable.
+ *
+ * Rules:
+ * - `int` => numeric parse of `value`
+ * - `array` => `size`
+ * - `ptr` => the resolved target id (after following ptr chains)
+ *
+ * Branches in the UI support `==`, `!=`, and numeric comparisons. Pointer values
+ * only participate in equality/inequality checks.
+ */
+const parseComparableValue = (
+  variable: MemoryVariable | undefined,
+  memoryById: Map<string, MemoryVariable>
+): number | string | undefined => {
   if (!variable) {
     return undefined;
   }
@@ -18,6 +33,10 @@ const parseMemoryNumericValue = (variable: MemoryVariable | undefined) => {
     return typeof variable.size === "number" && Number.isFinite(variable.size)
       ? variable.size
       : undefined;
+  }
+  if (variable.type === "ptr") {
+    const resolved = resolvePointerTargetById(variable.id, memoryById).resolved;
+    return resolved ? resolved.id : undefined;
   }
   return undefined;
 };
@@ -33,12 +52,26 @@ const evaluateRule = (
     return false;
   }
 
-  const lhs = parseMemoryNumericValue(
-    rule.lhsId ? memoryById.get(rule.lhsId) : undefined
+  const lhs = parseComparableValue(
+    rule.lhsId ? memoryById.get(rule.lhsId) : undefined,
+    memoryById
   );
-  const rhs = parseMemoryNumericValue(
-    rule.rhsId ? memoryById.get(rule.rhsId) : undefined
+  const rhs = parseComparableValue(
+    rule.rhsId ? memoryById.get(rule.rhsId) : undefined,
+    memoryById
   );
+  if (typeof lhs === "string" || typeof rhs === "string") {
+    if (typeof lhs !== "string" || typeof rhs !== "string") {
+      return false;
+    }
+    if (rule.op === "==") {
+      return lhs === rhs;
+    }
+    if (rule.op === "!=") {
+      return lhs !== rhs;
+    }
+    return false;
+  }
   if (typeof lhs !== "number" || typeof rhs !== "number") {
     return false;
   }
@@ -91,4 +124,3 @@ export const evaluateBranchCondition = (
   root: BranchGroupCondition,
   memoryEnv: MemoryVariable[]
 ) => evaluateCondition(root, new Map(memoryEnv.map((item) => [item.id, item])));
-

@@ -549,10 +549,18 @@ export const useStore = create<StoreState>()((set, get) => ({
     const nextMemoryEnv = memoryEnv
       .filter((item) => item.id !== id)
       .map((item) => {
-        if (item.parentId !== id) {
-          return item;
+        let next = item;
+
+        if (next.parentId === id) {
+          next = { ...next, parentId: undefined };
         }
-        return { ...item, parentId: undefined };
+
+        if (next.type === "ptr" && next.pointsToId === id) {
+          // Avoid leaving dangling pointer targets after a delete.
+          next = { ...next, pointsToId: undefined };
+        }
+
+        return next;
       });
 
     const scrubOperation = (op: TraceNode["data"]["operation"]) => {

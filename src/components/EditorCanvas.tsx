@@ -38,6 +38,7 @@ import ConfirmDialog from "./ConfirmDialog";
 import { exportReactFlowViewportToPng } from "../utils/exportReactFlowPng";
 import { Trash2 } from "lucide-react";
 import { createUuid } from "../utils/createUuid";
+import { resolvePointerTargetById } from "../utils/resolvePointers";
 
 const LANE_WIDTH = 260;
 const LANE_LABEL_HEIGHT = 80;
@@ -159,12 +160,26 @@ const createTraceNodeId = (takenIds: Set<string>) => {
 const createMemoryId = () =>
   `mem-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-const getNextRegisterName = (memoryEnv: MemoryVariable[]) => {
+/**
+ * Returns a unique, human-friendly name for a new local register.
+ *
+ * - `int` registers default to `r0`, `r1`, ...
+ * - `ptr` registers default to `p0`, `p1`, ...
+ *
+ * @param memoryEnv - Flattened memory environment.
+ * @param kind - The register kind to generate a name for.
+ */
+const getNextLocalRegisterName = (
+  memoryEnv: MemoryVariable[],
+  kind: "int" | "ptr"
+) => {
   const used = new Set<string>();
   let maxIndex = -1;
+  const prefix = kind === "ptr" ? "p" : "r";
+  const matcher = new RegExp(`^${prefix}(\\d+)$`);
 
   for (const item of memoryEnv) {
-    if (item.scope !== "locals" || item.type !== "int") {
+    if (item.scope !== "locals") {
       continue;
     }
     const name = item.name.trim();
@@ -172,7 +187,7 @@ const getNextRegisterName = (memoryEnv: MemoryVariable[]) => {
       continue;
     }
     used.add(name);
-    const match = /^r(\d+)$/.exec(name);
+    const match = matcher.exec(name);
     if (!match) {
       continue;
     }
@@ -183,10 +198,10 @@ const getNextRegisterName = (memoryEnv: MemoryVariable[]) => {
   }
 
   let nextIndex = maxIndex + 1;
-  let candidate = `r${nextIndex}`;
+  let candidate = `${prefix}${nextIndex}`;
   while (used.has(candidate)) {
     nextIndex += 1;
-    candidate = `r${nextIndex}`;
+    candidate = `${prefix}${nextIndex}`;
   }
   return candidate;
 };
@@ -493,7 +508,7 @@ const EditorCanvas = () => {
   );
 
   const addressDependencyEdges = useMemo<RelationEdge[]>(() => {
-    const memoryTypeById = new Map(memoryEnv.map((item) => [item.id, item.type]));
+    const memoryById = new Map(memoryEnv.map((item) => [item.id, item]));
     const dependencyTypes = new Set(["ad", "cd", "dd"]);
     const existingDependencyEdges = new Set(
       edges
@@ -554,20 +569,41 @@ const EditorCanvas = () => {
         const operation = node.data.operation;
         const indexId = operation.indexId;
 
+        const resolvedAddress = resolvePointerTargetById(
+          operation.addressId,
+          memoryById
+        ).resolved;
         const isArrayAccess =
-          !!operation.addressId &&
-          memoryTypeById.get(operation.addressId) === "array" &&
-          !!indexId;
+          !!operation.addressId && resolvedAddress?.type === "array" && !!indexId;
 
         const needsAddressDependency =
           isArrayAccess &&
-          (operation.type === "LOAD" || operation.type === "STORE") &&
+          (operation.type === "LOAD" ||
+            operation.type === "STORE" ||
+            operation.type === "RMW") &&
           !!indexId;
 
         if (needsAddressDependency) {
           const source =
             lastLoadByProducedId.get(indexId) ?? lastLoadByAddressId.get(indexId);
           if (source && source.data.sequenceIndex < node.data.sequenceIndex) {
+            pushDerived({ relationType: "ad", source, target: node });
+          }
+        }
+
+        const needsPointerAddressDependency =
+          !!operation.addressId &&
+          memoryById.get(operation.addressId)?.type === "ptr" &&
+          (operation.type === "LOAD" ||
+            operation.type === "STORE" ||
+            operation.type === "RMW");
+
+        if (needsPointerAddressDependency && operation.addressId) {
+          const pointerId = operation.addressId;
+          const source =
+            lastLoadByProducedId.get(pointerId) ?? lastLoadByAddressId.get(pointerId);
+          if (source && source.data.sequenceIndex < node.data.sequenceIndex) {
+            // Pointer dereferences are address-dependent on the pointer value.
             pushDerived({ relationType: "ad", source, target: node });
           }
         }
@@ -741,9 +777,14 @@ const EditorCanvas = () => {
           }
         }
       }
+      for (const variable of memoryEnv) {
+        if (variable.type === "ptr" && variable.pointsToId === id) {
+          count += 1;
+        }
+      }
       return count;
     },
-    [nodes]
+    [memoryEnv, nodes]
   );
 
   const requestDeleteMemory = useCallback(
@@ -766,10 +807,21 @@ const EditorCanvas = () => {
     const id = createMemoryId();
     addMemoryVar({
       id,
-      name: getNextRegisterName(memoryEnv),
+      name: getNextLocalRegisterName(memoryEnv, "int"),
       type: "int",
       scope: "locals",
       value: "",
+    });
+  }, [addMemoryVar, memoryEnv]);
+
+  const addLocalPointer = useCallback(() => {
+    const id = createMemoryId();
+    addMemoryVar({
+      id,
+      name: getNextLocalRegisterName(memoryEnv, "ptr"),
+      type: "ptr",
+      scope: "locals",
+      pointsToId: id,
     });
   }, [addMemoryVar, memoryEnv]);
 
@@ -977,7 +1029,8 @@ const EditorCanvas = () => {
       const id = createMemoryId();
 
       if (memoryType === "int") {
-        const name = scope === "locals" ? getNextRegisterName(memoryEnv) : "";
+        const name =
+          scope === "locals" ? getNextLocalRegisterName(memoryEnv, "int") : "";
         addMemoryVar({
           id,
           name,
@@ -994,6 +1047,17 @@ const EditorCanvas = () => {
           name: "",
           type: "array",
           scope,
+        });
+        return;
+      }
+
+      if (memoryType === "ptr") {
+        addMemoryVar({
+          id,
+          name: "",
+          type: "ptr",
+          scope,
+          pointsToId: id,
         });
       }
     },
@@ -1153,12 +1217,34 @@ const EditorCanvas = () => {
     }
   }, [nodes.length, setNodes, threadsForLayout]);
 
+  const pointerTargetOptions = useMemo(() => {
+    const memoryById = new Map(
+      memoryEnv.map((candidate) => [candidate.id, candidate] as const)
+    );
+
+    const formatOptionLabel = (candidate: MemoryVariable): string => {
+      const base = candidate.name.trim() || candidate.id;
+      if (!candidate.parentId) {
+        return base;
+      }
+      const parent = memoryById.get(candidate.parentId);
+      const parentLabel = parent ? formatOptionLabel(parent) : candidate.parentId;
+      return `${parentLabel}.${base}`;
+    };
+
+    return memoryEnv
+      .map((candidate) => ({
+        value: candidate.id,
+        label: formatOptionLabel(candidate),
+      }))
+      .filter((candidate) => candidate.label);
+  }, [memoryEnv]);
+
   const renderMemoryAtom = (item: MemoryVariable, nested: boolean) => {
     if (item.type === "struct") {
       return null;
     }
     const isSelected = selectedMemoryIds.includes(item.id);
-    const isArray = item.type === "array";
 
     return (
       <div
@@ -1199,7 +1285,7 @@ const EditorCanvas = () => {
           >
             <Trash2 className="h-4 w-4" aria-hidden="true" />
           </button>
-          {isArray ? (
+          {item.type === "array" ? (
             <input
               type="number"
               min={0}
@@ -1214,6 +1300,23 @@ const EditorCanvas = () => {
                 });
               }}
             />
+          ) : item.type === "ptr" ? (
+            <select
+              className="w-44 rounded border border-slate-300 bg-white px-2 py-1 text-xs"
+              value={item.pointsToId ?? ""}
+              onChange={(event) =>
+                updateMemoryVar(item.id, {
+                  pointsToId: event.target.value ? event.target.value : undefined,
+                })
+              }
+            >
+              <option value="">Target…</option>
+              {pointerTargetOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           ) : (
             <input
               className="w-24 rounded border border-slate-300 px-2 py-1 text-xs"
@@ -1296,18 +1399,28 @@ const EditorCanvas = () => {
 	                onDragOver={isLocalRegisters ? undefined : handleMemoryDragOver}
 	              >
 	                <div className="mb-2 flex items-center justify-between text-[11px] font-semibold uppercase text-slate-500">
-	                  <span>{section.label}</span>
-	                  {isLocalRegisters ? (
-	                    <button
-	                      type="button"
-	                      className="rounded border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-	                      onClick={addLocalRegister}
-	                      aria-label="Add local register"
-	                    >
-	                      +
-	                    </button>
-	                  ) : null}
-	                </div>
+                  <span>{section.label}</span>
+                  {isLocalRegisters ? (
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        className="rounded border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                        onClick={addLocalRegister}
+                        aria-label="Add int register"
+                      >
+                        +int
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                        onClick={addLocalPointer}
+                        aria-label="Add pointer register"
+                      >
+                        +ptr
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
 	                <div className="space-y-2">
 	                  {sectionItems.length > 0 ? (
 	                    sectionItems.map((item) =>
@@ -1316,13 +1429,13 @@ const EditorCanvas = () => {
 	                        : renderMemoryAtom(item, false)
 	                    )
 	                  ) : (
-	                    <div className="rounded border border-dashed border-slate-300 px-2 py-3 text-center text-xs text-slate-400">
-	                      {isLocalRegisters
-	                        ? "Use + to add registers"
-	                        : "Drop int or array here"}
-	                    </div>
-	                  )}
-	                </div>
+                    <div className="rounded border border-dashed border-slate-300 px-2 py-3 text-center text-xs text-slate-400">
+                      {isLocalRegisters
+                        ? "Use + to add registers"
+                        : "Drop int, array, or ptr here"}
+                    </div>
+                  )}
+                </div>
 	              </div>
 	            );
 	          })}

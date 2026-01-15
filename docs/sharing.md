@@ -13,6 +13,8 @@ create table if not exists public.litmus_shares (
   created_at timestamptz not null default now()
 );
 
+-- `snapshot` stores the full LitmusExplorer session JSON (including `ptr` memory variables).
+
 alter table public.litmus_shares enable row level security;
 
 -- Demo policies (public read + public insert).

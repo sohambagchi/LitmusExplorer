@@ -68,10 +68,11 @@ The app is organized around three layers:
 Defined in `src/types.ts`:
 - `id`: Unique ID string.
 - `name`: User-facing name.
-- `type`: `"int" | "array" | "struct"`.
+- `type`: `"int" | "array" | "ptr" | "struct"`.
 - `scope`: `"constants" | "locals" | "shared"`.
 - `value`: Optional literal string (for `int`).
 - `size`: Optional numeric size (for `array`).
+- `pointsToId`: Target variable id (for `ptr`, including structs).
 - `parentId`: For struct membership; child variables point to struct `id`.
 
 Default memory:
@@ -177,14 +178,14 @@ lane/sequence drag operations may require a manual validate to refresh `invalid`
 ### `Sidebar.tsx`
 - Session: new session, export snapshot JSON, import snapshot JSON.
 - Model: upload `.cat` files, view extracted definitions, reset model config.
-- Memory palette: drag `int` / `array` to Constants/Shared; group selected items into a struct.
+- Memory palette: drag `int` / `array` / `ptr` to Constants/Shared; group selected items into a struct.
 - Properties:
   - If an edge is selected, edit its `relationType` (from `modelConfig.relationTypes`) or delete it.
   - If a node is selected, edit operation fields using ID-based memory references.
 
 ## Branches (How Collapse Works Today)
 Branch nodes:
-- Evaluate a `branchCondition` against current memory values (numeric parse of `int.value` / `array.size`).
+- Evaluate a `branchCondition` against current memory values (`int.value`, `array.size`, and `ptr.pointsToId` for `==`/`!=`).
 - Offer two outgoing handles (`then`, `else`) and a `Both` toggle.
 
 Visibility logic (in `EditorCanvas`):

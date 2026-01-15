@@ -11,7 +11,7 @@ import type {
 } from "../types";
 
 const allowedOperationTypes = new Set(["LOAD", "STORE", "RMW", "FENCE", "BRANCH"]);
-const allowedMemoryTypes = new Set(["int", "array", "struct"]);
+const allowedMemoryTypes = new Set(["int", "array", "ptr", "struct"]);
 const allowedMemoryScopes = new Set(["constants", "locals", "shared"]);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -282,6 +282,14 @@ const parseMemorySection = (
       return { ...baseVariable, type: "array" as const, size };
     }
 
+    if (type === "ptr") {
+      const pointsToId =
+        typeof item.pointsToId === "string" && item.pointsToId.trim()
+          ? item.pointsToId.trim()
+          : undefined;
+      return { ...baseVariable, type: "ptr" as const, pointsToId };
+    }
+
     return { ...baseVariable, type: "struct" as const };
   });
 };
@@ -299,7 +307,29 @@ const parseMemorySnapshot = (value: unknown): SessionMemorySnapshot => {
   const locals = parseMemorySection(value.locals ?? [], "locals", "memory.locals");
   const shared = parseMemorySection(value.shared ?? [], "shared", "memory.shared");
 
-  return { constants, locals, shared };
+  const allVariables = [...constants, ...locals, ...shared];
+  const validIds = new Set(allVariables.map((item) => item.id));
+
+  /**
+   * Clears invalid ptr targets so imports don't crash the UI with out-of-range
+   * `<select>` values.
+   */
+  const normalizePointers = (items: MemoryVariable[]) =>
+    items.map((item) => {
+      if (item.type !== "ptr") {
+        return item;
+      }
+      if (!item.pointsToId || !validIds.has(item.pointsToId)) {
+        return { ...item, pointsToId: undefined };
+      }
+      return item;
+    });
+
+  return {
+    constants: normalizePointers(constants),
+    locals: normalizePointers(locals),
+    shared: normalizePointers(shared),
+  };
 };
 
 export const flattenSessionMemory = (memory: SessionMemorySnapshot) => [
@@ -355,13 +385,32 @@ const parseLegacyMemoryEnv = (value: unknown): SessionMemorySnapshot => {
       return { ...baseVariable, type: "array" as const, size };
     }
 
+    if (type === "ptr") {
+      const pointsToId =
+        typeof item.pointsToId === "string" && item.pointsToId.trim()
+          ? item.pointsToId.trim()
+          : undefined;
+      return { ...baseVariable, type: "ptr" as const, pointsToId };
+    }
+
     return { ...baseVariable, type: "struct" as const };
   });
 
+  const validIds = new Set(env.map((item) => item.id));
+  const normalized = env.map((item) => {
+    if (item.type !== "ptr") {
+      return item;
+    }
+    if (!item.pointsToId || !validIds.has(item.pointsToId)) {
+      return { ...item, pointsToId: undefined };
+    }
+    return item;
+  });
+
   return {
-    constants: env.filter((item) => item.scope === "constants"),
-    locals: env.filter((item) => item.scope === "locals"),
-    shared: env.filter((item) => item.scope === "shared"),
+    constants: normalized.filter((item) => item.scope === "constants"),
+    locals: normalized.filter((item) => item.scope === "locals"),
+    shared: normalized.filter((item) => item.scope === "shared"),
   };
 };
 

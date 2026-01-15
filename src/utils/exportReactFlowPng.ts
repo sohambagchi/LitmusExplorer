@@ -1,6 +1,11 @@
 import { toPng } from "html-to-image";
 import { getNodesBounds, getViewportForBounds, type Node } from "reactflow";
 
+/**
+ * Triggers a client-side download for a data URL.
+ * @param dataUrl Data URL (e.g. `data:image/png;base64,...`).
+ * @param filename Download filename (e.g. `my-session.png`).
+ */
 const downloadDataUrl = (dataUrl: string, filename: string) => {
   const link = document.createElement("a");
   link.href = dataUrl;
@@ -13,6 +18,12 @@ const THREAD_HEADER_PILL_HEIGHT = 26;
 const THREAD_HEADER_PILL_RADIUS = 13;
 const THREAD_HEADER_FONT =
   '600 13px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial';
+
+const WATERMARK_TEXT = "Litmus Explorer by Soham Bagchi";
+const WATERMARK_FONT =
+  '500 12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial';
+const WATERMARK_COLOR = "rgba(100, 116, 139, 0.22)";
+const WATERMARK_MARGIN = 10;
 
 /**
  * Loads a PNG data URL into an `HTMLImageElement`, ready for drawing to a canvas.
@@ -93,6 +104,37 @@ const truncateTextToWidth = (
   }
 
   return `${trimmed.slice(0, low)}${ellipsis}`;
+};
+
+/**
+ * Draws a subtle watermark in the bottom-left corner of an exported PNG.
+ * @param ctx Canvas 2D context (already scaled for `pixelRatio`).
+ * @param width Export width in CSS pixels.
+ * @param height Export height in CSS pixels.
+ */
+const drawExportWatermark = ({
+  ctx,
+  width,
+  height,
+}: {
+  ctx: CanvasRenderingContext2D;
+  width: number;
+  height: number;
+}) => {
+  ctx.save();
+
+  ctx.font = WATERMARK_FONT;
+  ctx.fillStyle = WATERMARK_COLOR;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "bottom";
+
+  // Keep the watermark anchored to the final exported image bounds (not the viewport content),
+  // so it appears consistently in every export regardless of padding or headers.
+  const x = Math.max(WATERMARK_MARGIN, 0);
+  const y = Math.max(height - WATERMARK_MARGIN, 0);
+  ctx.fillText(WATERMARK_TEXT, x, y, Math.max(0, width - WATERMARK_MARGIN * 2));
+
+  ctx.restore();
 };
 
 /**
@@ -225,7 +267,23 @@ export const exportReactFlowViewportToPng = async ({
   });
 
   if (!threadHeader || threadHeader.threads.length === 0) {
-    downloadDataUrl(dataUrl, filename);
+    const viewportImage = await loadPngDataUrl(dataUrl);
+    const canvas = document.createElement("canvas");
+    canvas.width = width * pixelRatio;
+    canvas.height = height * pixelRatio;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      downloadDataUrl(dataUrl, filename);
+      return;
+    }
+
+    ctx.scale(pixelRatio, pixelRatio);
+    ctx.fillStyle = backgroundColor;
+    ctx.fillRect(0, 0, width, height);
+    ctx.drawImage(viewportImage, 0, 0, width, height);
+    drawExportWatermark({ ctx, width, height });
+
+    downloadDataUrl(canvas.toDataURL("image/png"), filename);
     return;
   }
 
@@ -262,6 +320,8 @@ export const exportReactFlowViewportToPng = async ({
   ctx.moveTo(0, headerHeight);
   ctx.lineTo(width, headerHeight);
   ctx.stroke();
+
+  drawExportWatermark({ ctx, width, height: height + headerHeight });
 
   downloadDataUrl(canvas.toDataURL("image/png"), filename);
 };

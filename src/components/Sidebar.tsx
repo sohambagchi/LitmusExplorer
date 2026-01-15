@@ -25,6 +25,12 @@ import { checkEdgeConstraints } from "../utils/edgeConstraints";
 import BranchConditionEditor from "./BranchConditionEditor";
 import { evaluateBranchCondition } from "../utils/branchEvaluation";
 import { resolvePointerTargetById } from "../utils/resolvePointers";
+import {
+  formatStructMemberName,
+  getStructMemberContextByStructId,
+  resolveStructMemberContext,
+} from "../utils/structMembers";
+import { inferPointerTargetIdForRegister } from "../utils/inferRegisterTargets";
 import SessionTitleDialog from "./SessionTitleDialog";
 import RelationDefinitionsDialog from "./RelationDefinitionsDialog";
 import TutorialDialog from "./TutorialDialog";
@@ -272,6 +278,7 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
   const updateSelectedOperation = (updates: {
     addressId?: string;
     indexId?: string;
+    memberId?: string;
     resultId?: string;
     valueId?: string;
     expectedValueId?: string;
@@ -548,8 +555,11 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
     const memoryById = new Map(memoryEnv.map((item) => [item.id, item]));
 
     return memoryEnv
-      .filter((item) => item.type !== "struct")
-      .map((item) => ({ value: item.id, label: formatMemoryLabel(item, memoryById) }))
+      .filter((item) => !item.parentId)
+      .map((item) => ({
+        value: item.id,
+        label: formatMemoryLabel(item, memoryById),
+      }))
       .filter((option) => option.label);
   }, [memoryEnv]);
 
@@ -575,6 +585,27 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
       .filter(
         (item) =>
           (item.type === "int" || item.type === "ptr") && item.scope === "locals"
+      )
+      .map((item) => ({ value: item.id, label: formatMemoryLabel(item, memoryById) }))
+      .filter((option) => option.label);
+  }, [memoryEnv]);
+
+  /**
+   * Local result options for `LD` operations.
+   *
+   * Notes:
+   * - Scalars (int/ptr) model typical register loads.
+   * - Struct containers enable "load whole struct" flows (e.g. `r0 = LD(array[i])`)
+   *   and subsequent member-projection operations (e.g. `r1 = LD(r0.val)`).
+   */
+  const localLoadResultOptions = useMemo(() => {
+    const memoryById = new Map(memoryEnv.map((item) => [item.id, item]));
+    return memoryEnv
+      .filter(
+        (item) =>
+          (item.type === "int" || item.type === "ptr" || item.type === "struct") &&
+          item.scope === "locals" &&
+          !item.parentId
       )
       .map((item) => ({ value: item.id, label: formatMemoryLabel(item, memoryById) }))
       .filter((option) => option.label);
@@ -610,6 +641,7 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
       const operation = node.data.operation;
       addUsage(operation.addressId, threadId);
       addUsage(operation.indexId, threadId);
+      addUsage(operation.memberId, threadId);
       addUsage(operation.valueId, threadId);
       addUsage(operation.resultId, threadId);
       addUsage(operation.expectedValueId, threadId);
@@ -683,6 +715,7 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
     const updates: {
       addressId?: string;
       indexId?: string;
+      memberId?: string;
       resultId?: string;
       valueId?: string;
       expectedValueId?: string;
@@ -691,6 +724,7 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
 
     if (maybeClearLocal(operation.addressId)) updates.addressId = undefined;
     if (maybeClearLocal(operation.indexId)) updates.indexId = undefined;
+    if (maybeClearLocal(operation.memberId)) updates.memberId = undefined;
     if (maybeClearLocal(operation.resultId)) updates.resultId = undefined;
     if (maybeClearLocal(operation.valueId)) updates.valueId = undefined;
     if (maybeClearLocal(operation.expectedValueId)) updates.expectedValueId = undefined;
@@ -719,6 +753,120 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
 
     return { sourceNode, targetNode, relationType, constraint };
   }, [memoryEnv, nodes, selectedEdge]);
+
+  /**
+   * True when the selected operation address should show an index dropdown.
+   *
+   * We treat an address as "array-like" when either:
+   * - it resolves directly to an array (`addressId` is an array or a ptr-to-array), or
+   * - it is a local register loaded from a ptr-to-array (inferred).
+   */
+  const selectedAddressSupportsIndex = useMemo(() => {
+    if (!selectedNode) {
+      return false;
+    }
+    const addressId = selectedNode.data.operation.addressId;
+    if (!addressId) {
+      return false;
+    }
+    const resolved = resolvePointerTargetById(addressId, memoryById).resolved;
+    if (resolved?.type === "array") {
+      return true;
+    }
+    const inferredTargetId = inferPointerTargetIdForRegister({
+      nodes,
+      currentNode: selectedNode,
+      registerId: addressId,
+      memoryEnv,
+    });
+    return inferredTargetId ? memoryById.get(inferredTargetId)?.type === "array" : false;
+  }, [memoryById, memoryEnv, nodes, selectedNode]);
+
+  /**
+   * Struct-member options inferred from the current operation address.
+   *
+   * This drives the secondary dropdown shown when the chosen base address points at
+   * (or describes) a struct (direct struct, pointer-to-struct, array-of-struct).
+   */
+  const selectedStructMemberContext = useMemo(() => {
+    if (!selectedNode) {
+      return null;
+    }
+
+    const addressId = selectedNode.data.operation.addressId;
+    const direct = resolveStructMemberContext({ addressId, memoryEnv, memoryById });
+
+    const baseVar = addressId ? memoryById.get(addressId) : undefined;
+    const baseLabel =
+      baseVar && baseVar.scope === "locals"
+        ? formatMemoryLabel(baseVar, memoryById)
+        : "";
+
+    if (direct) {
+      return { context: direct, baseLabel };
+    }
+
+    if (!addressId) {
+      return null;
+    }
+
+    const inferredTargetId = inferPointerTargetIdForRegister({
+      nodes,
+      currentNode: selectedNode,
+      registerId: addressId,
+      memoryEnv,
+    });
+
+    if (!inferredTargetId) {
+      return null;
+    }
+
+    const inferred = getStructMemberContextByStructId({
+      structId: inferredTargetId,
+      memoryEnv,
+    });
+
+    return inferred ? { context: inferred, baseLabel } : null;
+  }, [memoryById, memoryEnv, nodes, selectedNode]);
+
+  const selectedStructMemberOptions = useMemo(() => {
+    if (!selectedStructMemberContext) {
+      return [];
+    }
+
+    const { context, baseLabel } = selectedStructMemberContext;
+    return context.members
+      .map((member) => ({
+        value: member.id,
+        label: baseLabel
+          ? `${baseLabel}.${formatStructMemberName(member)}`
+          : formatStructMemberName(member),
+      }))
+      .filter((option) => option.label);
+  }, [selectedStructMemberContext]);
+
+  useEffect(() => {
+    if (!selectedNode) {
+      return;
+    }
+
+    const operation = selectedNode.data.operation;
+    const memberId = operation.memberId;
+
+    if (!memberId) {
+      return;
+    }
+
+    const context = selectedStructMemberContext?.context ?? null;
+
+    const stillValid = context
+      ? context.members.some((member) => member.id === memberId)
+      : false;
+
+    if (!stillValid) {
+      updateSelectedOperation({ memberId: undefined });
+    }
+  }, [selectedStructMemberContext, selectedNode, updateSelectedOperation]);
 
   const selectedBranchOutcome = useMemo(() => {
     if (!selectedNode || selectedNode.data.operation.type !== "BRANCH") {
@@ -1144,38 +1292,61 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
               <>
                 {selectedNode.data.operation.type === "LOAD" ||
                 selectedNode.data.operation.type === "STORE" ||
-	                selectedNode.data.operation.type === "RMW" ? (
-	                  <select
-	                    className="w-full rounded border border-slate-300 px-2 py-1"
-	                    value={normalizeSelectionValue(
-	                      selectedNode.data.operation.addressId,
-	                      selectedNode.data.threadId
-	                    )}
-		                    onChange={(event) =>
-		                      updateSelectedOperation({
-		                        addressId: event.target.value || undefined,
-		                        indexId:
-		                          event.target.value &&
-		                          resolvePointerTargetById(
-		                            event.target.value,
-		                            memoryById
-		                          ).resolved?.type === "array"
-		                            ? selectedNode.data.operation.indexId
-		                            : undefined,
-		                      })
-		                    }
-		                  >
-	                    <option value="">Variable</option>
-	                    {filterOptionsForThread(
-	                      memoryOptions,
-	                      selectedNode.data.threadId
-	                    ).map((option) => (
-	                      <option key={option.value} value={option.value}>
-	                        {option.label}
-	                      </option>
-	                    ))}
-	                  </select>
-	                ) : null}
+                selectedNode.data.operation.type === "RMW" ? (
+                  <select
+                    className="w-full rounded border border-slate-300 px-2 py-1"
+                    value={normalizeSelectionValue(
+                      selectedNode.data.operation.addressId,
+                      selectedNode.data.threadId
+                    )}
+                    onChange={(event) => {
+                      const nextAddressId = event.target.value || undefined;
+                      if (!nextAddressId) {
+                        updateSelectedOperation({
+                          addressId: undefined,
+                          memberId: undefined,
+                          indexId: undefined,
+                        });
+                        return;
+                      }
+
+                      const resolved = resolvePointerTargetById(
+                        nextAddressId,
+                        memoryById
+                      ).resolved;
+                      const inferredTargetId = inferPointerTargetIdForRegister({
+                        nodes,
+                        currentNode: selectedNode,
+                        registerId: nextAddressId,
+                        memoryEnv,
+                      });
+                      const inferredTarget = inferredTargetId
+                        ? memoryById.get(inferredTargetId)
+                        : undefined;
+
+                      const isArrayLike =
+                        resolved?.type === "array" || inferredTarget?.type === "array";
+
+                      updateSelectedOperation({
+                        addressId: nextAddressId,
+                        memberId: undefined,
+                        indexId: isArrayLike
+                          ? selectedNode.data.operation.indexId
+                          : undefined,
+                      });
+                    }}
+                  >
+                    <option value="">Variable</option>
+                    {filterOptionsForThread(
+                      memoryOptions,
+                      selectedNode.data.threadId
+                    ).map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
 
                 {selectedNode.data.operation.type === "LOAD" ? (
                   <select
@@ -1192,7 +1363,7 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
                   >
                     <option value="">Result variable</option>
                     {filterOptionsForThread(
-                      localScalarOptions,
+                      localLoadResultOptions,
                       selectedNode.data.threadId
                     ).map((option) => (
                       <option key={option.value} value={option.value}>
@@ -1230,33 +1401,58 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
                 {selectedNode.data.operation.type === "LOAD" ||
                 selectedNode.data.operation.type === "STORE" ||
                 selectedNode.data.operation.type === "RMW" ? (
-                  selectedNode.data.operation.addressId &&
-                  resolvePointerTargetById(
-                    selectedNode.data.operation.addressId,
-                    memoryById
-                  ).resolved?.type === "array" ? (
-	                    <select
-	                      className="w-full rounded border border-slate-300 px-2 py-1"
-	                      value={normalizeSelectionValue(
-	                        selectedNode.data.operation.indexId,
-	                        selectedNode.data.threadId
-	                      )}
-	                      onChange={(event) =>
-	                        updateSelectedOperation({
-	                          indexId: event.target.value || undefined,
-	                        })
-	                      }
-	                    >
-	                      <option value="">Index variable</option>
-	                      {filterOptionsForThread(
-	                        intOptions,
-	                        selectedNode.data.threadId
-	                      ).map((option) => (
-	                        <option key={option.value} value={option.value}>
-	                          {option.label}
-	                        </option>
-	                      ))}
-	                    </select>
+                  selectedAddressSupportsIndex ? (
+                    <select
+                      className="w-full rounded border border-slate-300 px-2 py-1"
+                      value={normalizeSelectionValue(
+                        selectedNode.data.operation.indexId,
+                        selectedNode.data.threadId
+                      )}
+                      onChange={(event) =>
+                        updateSelectedOperation({
+                          indexId: event.target.value || undefined,
+                        })
+                      }
+                    >
+                      <option value="">Index variable</option>
+                      {filterOptionsForThread(
+                        intOptions,
+                        selectedNode.data.threadId
+                      ).map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null
+                ) : null}
+
+                {selectedNode.data.operation.type === "LOAD" ||
+                selectedNode.data.operation.type === "STORE" ||
+                selectedNode.data.operation.type === "RMW" ? (
+                  selectedStructMemberOptions.length > 0 ? (
+                    <select
+                      className="w-full rounded border border-slate-300 px-2 py-1"
+                      value={normalizeSelectionValue(
+                        selectedNode.data.operation.memberId,
+                        selectedNode.data.threadId
+                      )}
+                      onChange={(event) =>
+                        updateSelectedOperation({
+                          memberId: event.target.value || undefined,
+                        })
+                      }
+                    >
+                      <option value="">Member</option>
+                      {filterOptionsForThread(
+                        selectedStructMemberOptions,
+                        selectedNode.data.threadId
+                      ).map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
                   ) : null
                 ) : null}
 

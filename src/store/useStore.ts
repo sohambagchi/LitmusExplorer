@@ -693,6 +693,16 @@ export const useStore = create<StoreState>()((set, get) => ({
           next = { ...next, pointsToId: undefined };
         }
 
+        if (next.type === "array" && next.elementPointsToId === id) {
+          // Avoid leaving dangling array-of-ptr element targets after a delete.
+          next = { ...next, elementPointsToId: undefined };
+        }
+
+        if (next.type === "array" && next.elementStructId === id) {
+          // Avoid leaving dangling array-of-struct element templates after a delete.
+          next = { ...next, elementStructId: undefined };
+        }
+
         return next;
       });
 
@@ -703,6 +713,9 @@ export const useStore = create<StoreState>()((set, get) => ({
       }
       if (next.indexId === id) {
         next.indexId = undefined;
+      }
+      if (next.memberId === id) {
+        next.memberId = undefined;
       }
       if (next.valueId === id) {
         next.valueId = undefined;

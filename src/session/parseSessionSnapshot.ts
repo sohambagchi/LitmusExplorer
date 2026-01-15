@@ -106,6 +106,20 @@ const parseOptionalStructId = (value: unknown) => {
   return trimmed ? trimmed : undefined;
 };
 
+/**
+ * Parses an optional pointer target id reference (used for array-of-ptr element typing).
+ *
+ * @param value - Raw id from a snapshot.
+ * @returns Trimmed id string, or `undefined` when not provided.
+ */
+const parseOptionalPointerTargetId = (value: unknown) => {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+};
+
 const parseStringArray = (value: unknown, label: string) => {
   if (!Array.isArray(value)) {
     throw new Error(`${label} must be an array.`);
@@ -336,6 +350,7 @@ const parseMemorySection = (
         `${label}[${index}].elementType`
       );
       const elementStructId = parseOptionalStructId(item.elementStructId);
+      const elementPointsToId = parseOptionalPointerTargetId(item.elementPointsToId);
 
       return {
         ...baseVariable,
@@ -344,6 +359,8 @@ const parseMemorySection = (
         elementType,
         elementStructId:
           elementType === "struct" ? elementStructId : undefined,
+        elementPointsToId:
+          elementType === "ptr" ? elementPointsToId : undefined,
       };
     }
 
@@ -379,6 +396,7 @@ const parseMemorySnapshot = (value: unknown): SessionMemorySnapshot => {
       .filter((item) => item.type === "struct")
       .map((item) => [item.id, item.scope] as const)
   );
+  const scopeById = new Map(allVariables.map((item) => [item.id, item.scope] as const));
 
   /**
    * Clears invalid ptr targets so imports don't crash the UI with out-of-range
@@ -419,10 +437,40 @@ const parseMemorySnapshot = (value: unknown): SessionMemorySnapshot => {
       return item;
     });
 
+  /**
+   * Clears invalid array-of-ptr target references so importing sessions never crashes
+   * the pointer-target `<select>` with an out-of-range selection.
+   */
+  const normalizeArrayPointerRefs = (items: MemoryVariable[]) =>
+    items.map((item) => {
+      if (item.type !== "array") {
+        return item;
+      }
+      if (item.elementType !== "ptr") {
+        if (typeof item.elementPointsToId === "undefined") {
+          return item;
+        }
+        return { ...item, elementPointsToId: undefined };
+      }
+      const referencedScope = item.elementPointsToId
+        ? scopeById.get(item.elementPointsToId)
+        : undefined;
+      if (!referencedScope || referencedScope !== item.scope) {
+        return { ...item, elementPointsToId: undefined };
+      }
+      return item;
+    });
+
   return {
-    constants: normalizeArrayStructRefs(normalizePointers(constants)),
-    locals: normalizeArrayStructRefs(normalizePointers(locals)),
-    shared: normalizeArrayStructRefs(normalizePointers(shared)),
+    constants: normalizeArrayPointerRefs(
+      normalizeArrayStructRefs(normalizePointers(constants))
+    ),
+    locals: normalizeArrayPointerRefs(
+      normalizeArrayStructRefs(normalizePointers(locals))
+    ),
+    shared: normalizeArrayPointerRefs(
+      normalizeArrayStructRefs(normalizePointers(shared))
+    ),
   };
 };
 
@@ -481,6 +529,7 @@ const parseLegacyMemoryEnv = (value: unknown): SessionMemorySnapshot => {
         `memoryEnv[${index}].elementType`
       );
       const elementStructId = parseOptionalStructId(item.elementStructId);
+      const elementPointsToId = parseOptionalPointerTargetId(item.elementPointsToId);
 
       return {
         ...baseVariable,
@@ -489,6 +538,8 @@ const parseLegacyMemoryEnv = (value: unknown): SessionMemorySnapshot => {
         elementType,
         elementStructId:
           elementType === "struct" ? elementStructId : undefined,
+        elementPointsToId:
+          elementType === "ptr" ? elementPointsToId : undefined,
       };
     }
 
@@ -509,29 +560,44 @@ const parseLegacyMemoryEnv = (value: unknown): SessionMemorySnapshot => {
       .filter((item) => item.type === "struct")
       .map((item) => [item.id, item.scope] as const)
   );
+  const scopeById = new Map(env.map((item) => [item.id, item.scope] as const));
   const normalized = env.map((item) => {
-    if (item.type !== "ptr") {
-      if (item.type !== "array") {
-        return item;
-      }
-      if (item.elementType !== "struct") {
-        if (typeof item.elementStructId === "undefined") {
-          return item;
-        }
-        return { ...item, elementStructId: undefined };
-      }
-      const referencedScope = item.elementStructId
-        ? structScopeById.get(item.elementStructId)
-        : undefined;
-      if (!referencedScope || referencedScope !== item.scope) {
-        return { ...item, elementStructId: undefined };
+    if (item.type === "ptr") {
+      if (!item.pointsToId || !validIds.has(item.pointsToId)) {
+        return { ...item, pointsToId: undefined };
       }
       return item;
     }
-    if (!item.pointsToId || !validIds.has(item.pointsToId)) {
-      return { ...item, pointsToId: undefined };
+
+    if (item.type !== "array") {
+      return item;
     }
-    return item;
+
+    let next = item as typeof item;
+
+    if (next.elementType !== "struct" && typeof next.elementStructId !== "undefined") {
+      next = { ...next, elementStructId: undefined };
+    } else if (next.elementType === "struct") {
+      const referencedScope = next.elementStructId
+        ? structScopeById.get(next.elementStructId)
+        : undefined;
+      if (!referencedScope || referencedScope !== next.scope) {
+        next = { ...next, elementStructId: undefined };
+      }
+    }
+
+    if (next.elementType !== "ptr" && typeof next.elementPointsToId !== "undefined") {
+      next = { ...next, elementPointsToId: undefined };
+    } else if (next.elementType === "ptr") {
+      const referencedScope = next.elementPointsToId
+        ? scopeById.get(next.elementPointsToId)
+        : undefined;
+      if (!referencedScope || referencedScope !== next.scope) {
+        next = { ...next, elementPointsToId: undefined };
+      }
+    }
+
+    return next;
   });
 
   return {

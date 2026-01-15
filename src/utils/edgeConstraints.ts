@@ -1,5 +1,6 @@
 import type { MemoryVariable, RelationType, TraceNode } from "../types";
 import { resolvePointerTargetById } from "./resolvePointers";
+import { formatStructMemberName } from "./structMembers";
 
 export type EdgeConstraintResult = {
   allowed: boolean;
@@ -28,6 +29,9 @@ const resolveNodeAddressLabel = (
 ): string | null => {
   const addressId = node.data.operation.addressId;
   const indexId = node.data.operation.indexId;
+  const memberId = node.data.operation.memberId;
+  const member = memberId ? memoryById.get(memberId) : undefined;
+  const memberSuffix = member ? `.${formatStructMemberName(member)}` : "";
   if (addressId) {
     const resolved = resolvePointerTargetById(addressId, memoryById).resolved;
     const baseLabel = resolved ? formatMemoryLabel(resolved, memoryById) : addressId;
@@ -40,9 +44,9 @@ const resolveNodeAddressLabel = (
       indexLabel &&
       (resolved?.type === "array" || indexId || node.data.operation.index)
     ) {
-      return `${baseLabel}[${indexLabel}]`;
+      return `${baseLabel}[${indexLabel}]${memberSuffix}`;
     }
-    return baseLabel;
+    return `${baseLabel}${memberSuffix}`;
   }
   const address = node.data.operation.address?.trim();
   if (!address) {
@@ -53,7 +57,7 @@ const resolveNodeAddressLabel = (
     ? formatMemoryLabel(resolvedIndexItem, memoryById)
     : "";
   const indexLabel = resolvedIndex || node.data.operation.index?.trim() || "";
-  return indexLabel ? `${address}[${indexLabel}]` : address;
+  return indexLabel ? `${address}[${indexLabel}]${memberSuffix}` : `${address}${memberSuffix}`;
 };
 
 export const checkEdgeConstraints = ({

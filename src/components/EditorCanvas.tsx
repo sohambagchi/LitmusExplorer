@@ -686,6 +686,52 @@ const EditorCanvas = () => {
 
   const addressDependencyEdges = useMemo<RelationEdge[]>(() => {
     const memoryById = new Map(memoryEnv.map((item) => [item.id, item]));
+    const memberIdsByStructId = new Map<string, string[]>();
+    for (const item of memoryEnv) {
+      if (!item.parentId) {
+        continue;
+      }
+      const current = memberIdsByStructId.get(item.parentId) ?? [];
+      current.push(item.id);
+      memberIdsByStructId.set(item.parentId, current);
+    }
+
+    /**
+     * Infers the "pointee" memory variable id for a register-producing load node.
+     *
+     * This is a low-cost, single-step inference used during dependency derivation
+     * (we already track `lastLoadByProducedId`).
+     *
+     * @param writerNode - Node that produced a register via `resultId`.
+     * @returns Inferred target id, or `null` when not inferrable.
+     */
+    const inferTargetIdFromWriterNode = (writerNode: TraceNode): string | null => {
+      const writerOp = writerNode.data.operation;
+      const resolved = resolvePointerTargetById(writerOp.addressId, memoryById).resolved;
+      if (!resolved) {
+        return null;
+      }
+
+      if (resolved.type === "array") {
+        if (resolved.elementType === "ptr" && resolved.elementPointsToId) {
+          return resolved.elementPointsToId;
+        }
+        if (resolved.elementType === "struct" && resolved.elementStructId) {
+          return resolved.elementStructId;
+        }
+        return null;
+      }
+
+      if (resolved.type === "ptr" && resolved.pointsToId) {
+        return resolved.pointsToId;
+      }
+
+      if (resolved.type === "struct") {
+        return resolved.id;
+      }
+
+      return null;
+    };
     const dependencyTypes = new Set(["ad", "cd", "dd"]);
     const existingDependencyEdges = new Set(
       edges
@@ -710,6 +756,10 @@ const EditorCanvas = () => {
         const delta = a.data.sequenceIndex - b.data.sequenceIndex;
         return delta !== 0 ? delta : a.id.localeCompare(b.id);
       });
+      const isBefore = (source: TraceNode, target: TraceNode) => {
+        const delta = source.data.sequenceIndex - target.data.sequenceIndex;
+        return delta < 0 || (delta === 0 && source.id.localeCompare(target.id) < 0);
+      };
 
       const lastLoadByProducedId = new Map<string, TraceNode>();
       const lastLoadByAddressId = new Map<string, TraceNode>();
@@ -746,10 +796,31 @@ const EditorCanvas = () => {
         const operation = node.data.operation;
         const indexId = operation.indexId;
 
-        const resolvedAddress = resolvePointerTargetById(
+        const addressResolution = resolvePointerTargetById(
           operation.addressId,
           memoryById
-        ).resolved;
+        );
+        let resolvedAddress = addressResolution.resolved;
+
+        // If the base address is a local pointer register without a configured target,
+        // attempt to infer what it points to from its last producing load.
+        if (
+          operation.addressId &&
+          resolvedAddress?.type === "ptr" &&
+          addressResolution.base?.type === "ptr" &&
+          typeof addressResolution.base.pointsToId === "undefined"
+        ) {
+          const writer =
+            lastLoadByProducedId.get(operation.addressId) ??
+            lastLoadByAddressId.get(operation.addressId);
+          const inferredTargetId = writer ? inferTargetIdFromWriterNode(writer) : null;
+          const inferredTarget = inferredTargetId
+            ? memoryById.get(inferredTargetId)
+            : undefined;
+          if (inferredTarget) {
+            resolvedAddress = inferredTarget;
+          }
+        }
         const isArrayAccess =
           !!operation.addressId && resolvedAddress?.type === "array" && !!indexId;
 
@@ -763,24 +834,26 @@ const EditorCanvas = () => {
         if (needsAddressDependency) {
           const source =
             lastLoadByProducedId.get(indexId) ?? lastLoadByAddressId.get(indexId);
-          if (source && source.data.sequenceIndex < node.data.sequenceIndex) {
+          if (source && isBefore(source, node)) {
             pushDerived({ relationType: "ad", source, target: node });
           }
         }
 
-        const needsPointerAddressDependency =
+        const needsRegisterAddressDependency =
           !!operation.addressId &&
-          memoryById.get(operation.addressId)?.type === "ptr" &&
+          memoryById.get(operation.addressId)?.scope === "locals" &&
+          (memoryById.get(operation.addressId)?.type === "int" ||
+            memoryById.get(operation.addressId)?.type === "ptr") &&
           (operation.type === "LOAD" ||
             operation.type === "STORE" ||
             operation.type === "RMW");
 
-        if (needsPointerAddressDependency && operation.addressId) {
+        if (needsRegisterAddressDependency && operation.addressId) {
           const pointerId = operation.addressId;
           const source =
             lastLoadByProducedId.get(pointerId) ?? lastLoadByAddressId.get(pointerId);
-          if (source && source.data.sequenceIndex < node.data.sequenceIndex) {
-            // Pointer dereferences are address-dependent on the pointer value.
+          if (source && isBefore(source, node)) {
+            // Register-based dereferences are address-dependent on the register value.
             pushDerived({ relationType: "ad", source, target: node });
           }
         }
@@ -792,7 +865,7 @@ const EditorCanvas = () => {
           for (const id of ids) {
             const source =
               lastLoadByProducedId.get(id) ?? lastLoadByAddressId.get(id);
-            if (source && source.data.sequenceIndex < node.data.sequenceIndex) {
+            if (source && isBefore(source, node)) {
               pushDerived({ relationType: "cd", source, target: node });
             }
           }
@@ -803,7 +876,7 @@ const EditorCanvas = () => {
           if (valueId) {
             const source =
               lastLoadByProducedId.get(valueId) ?? lastLoadByAddressId.get(valueId);
-            if (source && source.data.sequenceIndex < node.data.sequenceIndex) {
+            if (source && isBefore(source, node)) {
               pushDerived({ relationType: "dd", source, target: node });
             }
           }
@@ -814,9 +887,30 @@ const EditorCanvas = () => {
           for (const valueId of valueIds) {
             const source =
               lastLoadByProducedId.get(valueId) ?? lastLoadByAddressId.get(valueId);
-            if (source && source.data.sequenceIndex < node.data.sequenceIndex) {
+            if (source && isBefore(source, node)) {
               pushDerived({ relationType: "dd", source, target: node });
             }
+          }
+        }
+
+        const needsStructMemberDataDependency =
+          operation.type === "LOAD" &&
+          !!operation.addressId &&
+          !!operation.memberId &&
+          memoryById.get(operation.addressId)?.type === "struct" &&
+          memoryById.get(operation.addressId)?.scope === "locals";
+
+        if (needsStructMemberDataDependency) {
+          const memberId = operation.memberId;
+          if (!memberId) {
+            continue;
+          }
+          const source =
+            lastLoadByProducedId.get(memberId) ?? lastLoadByAddressId.get(memberId);
+          if (source && isBefore(source, node)) {
+            // Reading a struct member from a register is data-dependent on the
+            // instruction that last produced that member (or the whole struct).
+            pushDerived({ relationType: "dd", source, target: node });
           }
         }
 
@@ -827,6 +921,13 @@ const EditorCanvas = () => {
           lastLoadByAddressId.set(operation.addressId, node);
           if (operation.resultId) {
             lastLoadByProducedId.set(operation.resultId, node);
+            const result = memoryById.get(operation.resultId);
+            if (result?.type === "struct") {
+              const memberIds = memberIdsByStructId.get(result.id) ?? [];
+              for (const memberId of memberIds) {
+                lastLoadByProducedId.set(memberId, node);
+              }
+            }
           }
         }
       }
@@ -942,6 +1043,7 @@ const EditorCanvas = () => {
         const op = node.data.operation;
         if (op.addressId === id) count += 1;
         if (op.indexId === id) count += 1;
+        if (op.memberId === id) count += 1;
         if (op.valueId === id) count += 1;
         if (op.resultId === id) count += 1;
         if (op.expectedValueId === id) count += 1;
@@ -1552,12 +1654,20 @@ const EditorCanvas = () => {
               <select
                 className="w-24 rounded border border-slate-300 bg-white px-2 py-1 text-xs"
                 value={encodeArrayElementSelection(item)}
-                onChange={(event) =>
-                  updateMemoryVar(
-                    item.id,
-                    parseArrayElementSelection(event.target.value)
-                  )
-                }
+                onChange={(event) => {
+                  const selection = event.target.value;
+                  const updates = parseArrayElementSelection(selection);
+                  const elementType = updates.elementType;
+                  updateMemoryVar(item.id, {
+                    ...updates,
+                    elementPointsToId:
+                      elementType === "ptr" && item.elementType === "ptr"
+                        ? item.elementPointsToId
+                        : elementType === "ptr"
+                          ? undefined
+                          : undefined,
+                  });
+                }}
               >
                 <option value="int">int</option>
                 <option value="ptr">ptr</option>
@@ -1575,6 +1685,28 @@ const EditorCanvas = () => {
                   </optgroup>
                 ) : null}
               </select>
+              {item.elementType === "ptr" ? (
+                <select
+                  className="w-44 rounded border border-slate-300 bg-white px-2 py-1 text-xs"
+                  value={item.elementPointsToId ?? ""}
+                  onChange={(event) =>
+                    updateMemoryVar(item.id, {
+                      elementPointsToId: event.target.value || undefined,
+                    })
+                  }
+                >
+                  <option value="">Pointee struct…</option>
+                  {arrayStructTemplateOptions[item.scope].length > 0 ? (
+                    <optgroup label="struct templates">
+                      {arrayStructTemplateOptions[item.scope].map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null}
+                </select>
+              ) : null}
               <input
                 type="number"
                 min={0}

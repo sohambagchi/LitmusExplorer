@@ -37,6 +37,16 @@ export type ArrayMemoryVariable = MemoryVariableBase & {
    * array is configured as an array of structs.
    */
   elementStructId?: string;
+  /**
+   * Optional pointee variable id when this array is configured as an array of pointers.
+   *
+   * Notes:
+   * - This is editor metadata used to describe what `ptr` elements point to.
+   * - This enables "typed dereference" UX for registers loaded from the array,
+   *   without requiring users to manually configure every local ptr register.
+   * - Currently intended primarily for pointers-to-struct templates.
+   */
+  elementPointsToId?: string;
 };
 
 export type PtrMemoryVariable = MemoryVariableBase & {
@@ -119,6 +129,17 @@ export type Operation = {
   type: OperationType;
   addressId?: string;
   indexId?: string;
+  /**
+   * Optional struct member id used when addressing a struct (or an array-of-struct element).
+   *
+   * Notes:
+   * - When `addressId` resolves to a struct variable, `memberId` should reference
+   *   one of that struct's member variables (`member.parentId === struct.id`).
+   * - When `addressId` resolves to an array configured with `elementType: "struct"`,
+   *   `memberId` should reference a member variable of the array's struct template
+   *   (`member.parentId === array.elementStructId`).
+   */
+  memberId?: string;
   resultId?: string;
   valueId?: string;
   expectedValueId?: string;

@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Handle, Position, type NodeProps } from "reactflow";
 import { useStore } from "../store/useStore";
 import { resolvePointerTargetById } from "../utils/resolvePointers";
+import { formatStructMemberName } from "../utils/structMembers";
 import type {
   MemoryVariable,
   OperationType,
@@ -205,6 +206,16 @@ const OperationNode = ({ data, selected }: NodeProps<TraceNodeData>) => {
       isArrayAddress && baseAddressLabel && indexLabel
         ? `${baseAddressLabel}[${indexLabel}]`
         : baseAddressLabel;
+    const memberSuffix = op.memberId
+      ? (() => {
+          const member = memoryById.get(op.memberId);
+          if (!member) {
+            return "";
+          }
+          return `.${formatStructMemberName(member)}`;
+        })()
+      : "";
+    const addressWithMember = addressLabel ? `${addressLabel}${memberSuffix}` : "";
     const baseOrderSuffix = formatOrderSuffix(op.memoryOrder);
 
     if (op.text) {
@@ -220,7 +231,7 @@ const OperationNode = ({ data, selected }: NodeProps<TraceNodeData>) => {
         ? formatMemoryLabel(memoryById.get(op.resultId), memoryById)
         : "";
       const resultLabel = resolvedResult || "";
-      const address = addressLabel || "?";
+      const address = addressWithMember || addressLabel || "?";
       const expression = `${opLabel}${baseOrderSuffix}(${address})`;
       return resultLabel
         ? `${resultLabel} = ${expression}`
@@ -234,7 +245,7 @@ const OperationNode = ({ data, selected }: NodeProps<TraceNodeData>) => {
       const valueLabel =
         resolvedValue ||
         (op.value !== undefined ? String(op.value) : "");
-      const address = addressLabel || "?";
+      const address = addressWithMember || addressLabel || "?";
       const value = valueLabel || "?";
       return `${opLabel}${baseOrderSuffix}(${address}, ${value})`;
     }
@@ -244,7 +255,7 @@ const OperationNode = ({ data, selected }: NodeProps<TraceNodeData>) => {
         ? formatMemoryLabel(memoryById.get(op.resultId), memoryById)
         : "";
       const resultLabel = resolvedResult || "";
-      const address = addressLabel || "?";
+      const address = addressWithMember || addressLabel || "?";
       const expected = op.expectedValueId
         ? formatMemoryLabel(memoryById.get(op.expectedValueId), memoryById)
         : "";
@@ -263,7 +274,7 @@ const OperationNode = ({ data, selected }: NodeProps<TraceNodeData>) => {
         : expression;
     }
 
-    const address = addressLabel || "?";
+    const address = addressWithMember || addressLabel || "?";
     return `${opLabel}${baseOrderSuffix}(${address})`;
   }, [data.operation, memoryById]);
 

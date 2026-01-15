@@ -11,59 +11,56 @@ making changes.
 Litmus Explorer is a React + React Flow prototype for visualizing litmus tests.
 The UI lets users:
 - Lay out operations along thread lanes.
-- Connect relation edges between operations.
-- Define memory variables in top-of-canvas Memory sections.
-- Group variables into structs to express address dependencies.
-- Validate simple edge constraints (currently read-from ordering).
+- Connect operations with relation edges (created as `po`, then re-typed in the sidebar).
+- Define memory variables in the Memory strip (Constants / Local Registers / Shared).
+- Group memory variables into structs for qualified names (e.g. `s.x`).
+- Validate edges against basic constraints (same-thread rules, same-location rules).
+- Export/import sessions (JSON), export the graph as PNG, and optionally share sessions.
 
 Conceptually:
 - Memory is the "state".
-- Operations (nodes) express state changes.
-- Relations (edges) connect operations (across or within threads).
+- Operations (nodes) express actions on memory.
+- Relations (edges) connect operations within/across threads.
 
 ## Quick Start (Developer)
 ```sh
 npm install
 npm run dev
 ```
+
 Vite serves the app; entry point is `index.html` -> `src/main.tsx`.
 
 ## Repository Map (High Level)
 - `index.html`: Vite entry shell.
 - `src/main.tsx`: React root + StrictMode.
-- `src/App.tsx`: Top-level layout and seed data.
-- `src/components/EditorCanvas.tsx`: React Flow canvas + Memory UI strip.
-- `src/components/Sidebar.tsx`: Toolbox, Memory definition palette, relation type selector, and Properties editor.
-- `src/components/OperationNode.tsx`: Operation node UI.
-- `src/components/BranchNode.tsx`: Branch node UI.
-- `src/components/RelationEdge.tsx`: Custom edge rendering.
-- `src/store/useStore.ts`: Zustand store and all app state/actions.
-- `src/types.ts`: Domain types.
-- `src/index.css`: Tailwind layers and global CSS.
-- `vite.config.ts`: Vite + React plugin.
-- `tailwind.config.cjs` and `postcss.config.cjs`: styling pipeline.
+- `src/App.tsx`: Layout, demo seeding, Share flow, Validate button.
+- `src/components/EditorCanvas.tsx`: React Flow canvas + Memory strip + viewport controls.
+- `src/components/Sidebar.tsx`: Session/model tools, toolbox, memory palette, properties editor.
+- `src/components/OperationNode.tsx`, `src/components/BranchNode.tsx`: Custom nodes.
+- `src/components/RelationEdge.tsx`: Custom edge renderer + labels.
+- `src/store/useStore.ts`: Zustand store (nodes, edges, memory, threads, model config).
+- `src/session/`: Session snapshot creation/parsing.
+- `src/share/`: Supabase sharing helpers.
+- `src/cat/`: Minimal `.cat` parser to extract relation definitions/types.
+- `src/utils/`: Constraints, branch evaluation, PNG export, IDs.
+- `src/types.ts`: Domain + snapshot types.
+- `tests/session-samples/`: Example session JSON files for manual import.
+- `docs/sharing.md`: Supabase table + env vars + SPA routing notes.
+- `vercel.json`: SPA rewrite rule (so `/<uuid>` routes load the app).
 
 ## Architecture Overview
-The app is intentionally small and is organized around three layers:
+The app is organized around three layers:
 
-1) Domain Types (static definitions)
-   - `src/types.ts` defines memory, nodes, edges, and operation shapes.
-   - These types should remain stable and descriptive; new features should
-     extend types rather than bypass them.
+1) Domain Types
+   - `src/types.ts` defines memory, nodes, edges, operations, and session snapshots.
 
-2) State Management (Zustand store)
+2) State Management (Zustand)
    - `src/store/useStore.ts` is the single source of truth for app state.
-   - State includes nodes, edges, memory, active branch, threads, and UI
-     selection for memory grouping.
-   - Store actions handle all mutations so UI remains dumb and predictable.
+   - It also owns validation (`validateGraph`) and `.cat`-driven model metadata.
 
-3) UI and Interactions (React components)
-   - `EditorCanvas` renders React Flow and the Memory strip.
-   - `Sidebar` provides tools for creating nodes/edges and editing properties.
-   - Node and edge components encapsulate visuals for different types.
-
-This separation keeps React Flow-specific logic localized in `EditorCanvas` and
-keeps state mutations centralized in the store.
+3) UI / Interactions (React + React Flow)
+   - `EditorCanvas` renders the graph and Memory strip.
+   - `Sidebar` manages sessions/models and edits selected node/edge properties.
 
 ## Data Model Deep Dive
 
@@ -73,243 +70,164 @@ Defined in `src/types.ts`:
 - `name`: User-facing name.
 - `type`: `"int" | "array" | "struct"`.
 - `scope`: `"constants" | "locals" | "shared"`.
-- `value`: Optional literal string.
+- `value`: Optional literal string (for `int`).
+- `size`: Optional numeric size (for `array`).
 - `parentId`: For struct membership; child variables point to struct `id`.
 
-Structs are modeled as a memory variable with `type: "struct"` and child
-variables referencing it via `parentId`. This is important for address
-dependency tracking and for addressing in operations.
+Default memory:
+- The store seeds a `NULL` constant (`id: "const-null"`, value `"0"`).
+
+Structs are represented as a `type: "struct"` variable plus children that point to it
+via `parentId`. Formatting uses `parent.name + "." + child.name` (or IDs as fallback).
 
 ### Operations (`Operation`)
-Each node holds an operation:
+Each node has an `operation` object (in `TraceNodeData`):
 - `type`: `"LOAD" | "STORE" | "RMW" | "FENCE" | "BRANCH"`.
-- `addressId` and `valueId`: Memory variable references (preferred).
-- `address` and `value`: Legacy inline fields (kept for compatibility).
-- `memoryOrder`: `"Relaxed" | "Acquire" | "Release" | "SC"`.
-
-UI prefers memory references. When `addressId` or `valueId` are set, inline
-fields are cleared by the editor so only one data path is active.
+- ID-based references (preferred):
+  - `addressId`: Accessed location.
+  - `indexId`: Optional index variable for array accesses.
+  - `resultId`: Destination variable for `LOAD`.
+  - `valueId`: Source variable for `STORE` (or use legacy `value`).
+  - `expectedValueId` / `desiredValueId`: CAS-style inputs for `RMW`.
+- Legacy inline fields (kept for compatibility with older snapshots/seeds):
+  - `address`, `index`, `value`.
+- Memory order fields are strings:
+  - `memoryOrder` for `LOAD`/`STORE`/`FENCE`.
+  - `successMemoryOrder` / `failureMemoryOrder` for `RMW`.
+  - Defaults come from `DEFAULT_MEMORY_ORDERS` in `src/types.ts` (includes `Standard`, `Acq_Rel`, etc.).
+- Branching:
+  - `branchCondition` is a tree of comparison rules combined by `&&`/`||`.
+  - `branchShowBothFutures` controls whether the non-taken branch is hidden.
 
 ### Graph Nodes (`TraceNode`)
 React Flow node with `TraceNodeData`:
-- `threadId`: Lane identifier (e.g., `T1`, `T2`).
-- `sequenceIndex`: Derived from x-position; used for ordering.
-- `branchId` and `branchPath`: Optional for branch collapsing.
+- `threadId`: Lane identifier (e.g., `T0`, `T1`).
+- `sequenceIndex`: Derived from x-position (`round(x / GRID_X)`, clamped to `>= 1`).
 
-Nodes are placed on discrete y-lanes. Dropping or dragging a node reassigns
-`threadId` based on its lane.
+Nodes are lane-snapped while dragging and are normalized on drag-stop:
+- Y is snapped to the lane center.
+- X is snapped to `sequenceIndex * GRID_X`.
+- If you drop/drag into the dashed “next thread” lane, a new thread is created.
 
 ### Relation Edges (`RelationEdge`)
 React Flow edge with `RelationEdgeData`:
-- `relationType`: `"rf" | "co" | "fr" | "po"`.
-- `invalid`: Optional flag used to render jagged edges.
+- `relationType`: A string. Defaults are `DEFAULT_RELATION_TYPES` (`rf`, `co`, `fr`, `po`, `ad`, `cd`, `dd`).
+- `invalid`: When true, `RelationEdge` renders a jagged red path.
+- `generated`: Used for derived, non-interactive edges.
 
-Edges are created by user connection gestures and inherit the relation type
-selected in the sidebar. There is no automatic `po` edge generation in the
-current implementation.
+Edge creation/editing:
+- New edges created via connect gesture start as `relationType: "po"`.
+- To set `rf`/`co`/`fr`/etc., select the edge and update `relationType` in the Sidebar.
 
-## Component Deep Dive
+Derived dependency edges:
+- `EditorCanvas` derives `ad`/`cd`/`dd` edges within each thread by analyzing node fields and renders them as non-interactive “bands” (`generated: true`).
+- Derived edges are not labeled and are excluded from edge property editing.
+
+### Sessions (Export / Import / Share)
+- Export uses `src/session/createSessionSnapshot.ts`.
+- Import validates and normalizes using `src/session/parseSessionSnapshot.ts`.
+- `tests/session-samples/` includes example snapshots for manual import.
+
+Optional sharing:
+- `Share` stores a snapshot in Supabase under a generated UUID and shows a link.
+- See `docs/sharing.md` for table schema and required `VITE_SUPABASE_*` env vars.
+- `vercel.json` includes an SPA rewrite so `/<uuid>` routes load the app.
+
+### Model Configuration and `.cat` Files
+The store maintains:
+- `modelConfig.relationTypes`: The allowed relation names shown in the edge dropdown.
+- `modelConfig.memoryOrders`: The allowed memory orders shown in node dropdowns.
+
+Uploading `.cat` files in the Sidebar:
+- Parses files locally (no automatic fetching of `include` dependencies).
+- Extracts non-macro `let name = ...` definitions and appends those names to `modelConfig.relationTypes`.
+- Shows warnings for missing include files and unresolved identifiers.
+- Allows viewing extracted definitions in a dialog.
+
+## Validation Rules (Current)
+Validation is always run when the user clicks `Validate Graph`. It is also triggered
+by some edits (edge creation, edge type changes, and operation property edits), but
+lane/sequence drag operations may require a manual validate to refresh `invalid` flags.
+
+1) Structural constraints (`src/utils/edgeConstraints.ts`)
+   - `po`, `ad`, `cd`, `dd` must stay within a single thread.
+   - `rf`, `co`, `fr` across threads require both endpoints to resolve to the same memory location label (supports structs and array indices).
+
+2) Simple `rf` ordering constraint (`src/store/useStore.ts`)
+   - If `rf` connects a `STORE` to a `LOAD` within the same thread and the store’s `sequenceIndex` is greater than the load’s, the edge is marked invalid.
+
+## Component Notes
 
 ### `App.tsx`
-- Seeds an initial example graph the first time the app loads.
-- Hosts the main layout: sidebar + canvas.
+- Seeds a demo graph on first load (unless `/<uuid>` is present).
+- Header provides `Share` and `Validate Graph`.
+- `/<uuid>` loads a shared snapshot from Supabase (if configured).
 
 ### `EditorCanvas.tsx`
-Responsibilities:
-- React Flow configuration (nodeTypes, edgeTypes, handlers).
-- Memory strip UI (Constants/Locals/Shared drop zones).
-- Drag/drop for nodes and memory variables.
-- Snap-to-grid and lane locking behavior.
-
-Key behaviors:
-- Y-axis is discrete; lane selection maps to thread IDs.
-- X-axis controls `sequenceIndex` on drop and drag-stop.
-- Horizontal-only panning via React Flow props.
-- Grid overlay indicates sequence slots.
-
-Extension points:
-- Add new node/edge types to `nodeTypes` or `edgeTypes`.
-- Add new memory scopes or change the Memory layout.
-- Add custom background overlays or lane labels.
+- Memory strip at the top:
+  - Constants and Shared accept drops from the Sidebar’s memory palette.
+  - Local Registers are created with the `+` button.
+- Canvas behavior:
+  - Nodes snap to lanes and sequence grid.
+  - Mouse wheel pans horizontally; hold Shift to scroll vertically (or use the scrollbar).
+  - `Labels` cycles edge label modes (`all` / `nonPo` / `off`).
+  - `Export PNG` exports the current graph viewport (based on node bounds).
+  - `Locked` disables node dragging and new connections.
 
 ### `Sidebar.tsx`
-Responsibilities:
-- Session actions (New/Export).
-- Memory palette (draggable `int`, `array`) and Struct grouping.
-- Relation type selector for new edges.
-- Toolbox items for creating nodes.
-- Properties editor for selected nodes.
+- Session: new session, export snapshot JSON, import snapshot JSON.
+- Model: upload `.cat` files, view extracted definitions, reset model config.
+- Memory palette: drag `int` / `array` to Constants/Shared; group selected items into a struct.
+- Properties:
+  - If an edge is selected, edit its `relationType` (from `modelConfig.relationTypes`) or delete it.
+  - If a node is selected, edit operation fields using ID-based memory references.
 
-Important details:
-- Struct grouping is enabled only when 2+ items in the same scope are selected.
-- Properties editor uses memory variable references, not raw strings.
+## Branches (How Collapse Works Today)
+Branch nodes:
+- Evaluate a `branchCondition` against current memory values (numeric parse of `int.value` / `array.size`).
+- Offer two outgoing handles (`then`, `else`) and a `Both` toggle.
 
-### `OperationNode.tsx`
-Responsibilities:
-- Render compact operation labels and metadata.
-- Resolve memory labels from `addressId`/`valueId`.
+Visibility logic (in `EditorCanvas`):
+- If a branch node is set to hide one future, the canvas builds a set of nodes reachable from:
+  - edges from the branch’s `then` handle and `else` handle, plus
+  - downstream reachability following `po` edges.
+- The non-taken future’s exclusive nodes are hidden.
 
-If you change memory labeling rules, update the formatter here.
+This means branch collapsing is driven primarily by edge connectivity (not by pre-tagging nodes with `branchId`/`branchPath`), although those fields may appear in older snapshots.
 
-### `BranchNode.tsx`
-Responsibilities:
-- Compact diamond-shaped branch node.
-- Allows selecting `then`/`else` path and collapsing visibility.
-
-### `RelationEdge.tsx`
-Responsibilities:
-- Render relation edges with straight or jagged paths.
-- Color by relation type; jagged lines for invalid edges.
-
-## Interaction Model
-
-### Thread Lanes
-Thread lanes are vertical bands determined by y-position.
-Rules:
-- Nodes are forced to a lane on drag and on drag-stop.
-- `threadId` is assigned based on the lane index.
-- Lane count is driven by `threads` in the store.
-
-### Sequence Indexing
-Sequence order is derived from x-position:
-- `sequenceIndex = round(x / GRID_X)`.
-- Nodes snap to grid on drag-stop.
-- Grid lines are rendered at `GRID_X` intervals.
-
-### Memory Drag & Drop
-Memory items are dragged from the sidebar and dropped into Memory sections.
-On drop:
-- A new `MemoryVariable` is created with scope = drop zone.
-- Name and value are editable inline in the Memory strip.
-
-### Struct Grouping
-Struct grouping:
-- Select 2+ memory items (checkboxes).
-- Click `Struct` to create a parent struct.
-- Selected items get `parentId` set to the struct ID.
-
-This grouping does not change node data directly, but provides a stronger
-addressing scheme (e.g., `struct.member`).
-
-### Edge Creation
-Edges are created with a user gesture (connect source -> target).
-The selected relation type in the sidebar is applied to the new edge.
-
-## How to Add Features
+## How to Add Features (Guidance)
 
 ### Add a New Operation Type
-1) Update `OperationType` in `src/types.ts`.
-2) Extend `opLabels` in `src/components/OperationNode.tsx`.
-3) Add a toolbox item in `src/components/Sidebar.tsx`.
-4) Update any seed data in `src/App.tsx` if needed.
-5) Consider how validation should handle the new type.
+1) Update `OperationType` and the `Operation` shape in `src/types.ts`.
+2) Extend rendering in `src/components/OperationNode.tsx`.
+3) Add toolbox + property editing in `src/components/Sidebar.tsx`.
+4) Update seed data (optional) in `src/App.tsx`.
+5) Decide whether derived dependencies or constraints should consider it (EditorCanvas/store).
 
 ### Add a New Relation Type
-1) Update `RelationType` in `src/types.ts`.
-2) Add color mapping in `src/components/RelationEdge.tsx`.
-3) Add the option to the Relations selector in `src/components/Sidebar.tsx`.
-4) Update validation rules in `src/store/useStore.ts` if needed.
+1) Add it to `DEFAULT_RELATION_TYPES` in `src/types.ts`, or supply it via `.cat` upload.
+2) If you want a specific color, extend `coreRelationColors` in `src/components/RelationEdge.tsx`.
+3) Update constraints in `src/utils/edgeConstraints.ts` if the relation has special rules.
 
 ### Add a New Memory Scope
 1) Update `MemoryScope` in `src/types.ts`.
 2) Add a section in `MEMORY_SECTIONS` in `src/components/EditorCanvas.tsx`.
-3) Add any related UI text in `src/components/Sidebar.tsx`.
-
-### Add a New Node Type (Custom React Flow Node)
-1) Create a node component in `src/components/` or `src/nodes/`.
-2) Add the type to `nodeTypes` in `EditorCanvas`.
-3) Update the type on node creation and in any seeds.
-4) Ensure handles exist for edges if the node is connectable.
-
-### Add Edge Editing (Type or Metadata)
-Recommended approach:
-- Use React Flow edge selection events.
-- Store `selectedEdgeId` in the store.
-- Add an Edge Properties section in the sidebar.
-- Update the edge data via `setEdges` with immutable updates.
+3) Decide how it should behave in the Sidebar’s dropdown filtering.
 
 ## Testing Strategy (Not Configured Yet)
-No test runner is installed yet. If you add tests, keep them lightweight and
-close to features that change frequently.
-
-### Suggested Stack
-- Vitest + React Testing Library for unit and component tests.
-- Playwright for end-to-end flows (optional).
-
-### What to Test
-1) Store logic
-   - Grouping into structs.
-   - Relation validation logic.
-   - Session reset/export states.
-
-2) Component logic
-   - Memory label rendering with and without `parentId`.
-   - Operation node label formatting.
-   - Sidebar selection to action wiring.
-
-3) Interaction tests (if using e2e)
-   - Drag memory item into a scope; verify it appears.
-   - Drag nodes and assert lane snapping.
-   - Create an edge and verify relation type.
-
-### Example Test Ideas (Pseudo)
-```ts
-// Store grouping: selected items with same scope should form struct
-expect(store.getState().memoryEnv).toHaveLength(3);
-store.getState().groupSelectedIntoStruct();
-expect(store.getState().memoryEnv.find((m) => m.type === "struct")).toBeTruthy();
-```
-
-```tsx
-// OperationNode label formatting
-render(<OperationNode data={...} />);
-expect(screen.getByText(/LD x/)).toBeInTheDocument();
-```
+No test runner is installed yet. If you add tests, keep them lightweight and close to frequently-changed logic (store validation, snapshot parsing, edge constraints).
 
 ## Debugging and Troubleshooting
-
-Common issues:
 - "I cannot connect edges":
-  - Ensure node handles exist and are not covered by overlays.
-  - Check React Flow props for `nodesConnectable`.
-
-- "Nodes jump to wrong thread":
-  - Verify `threads` array and `LANE_HEIGHT` math.
-  - Ensure `getLaneIndexFromY` uses the same `LANE_PADDING`.
-
-- "Memory dropdowns show empty":
-  - Ensure memory variables have names (empty names are filtered).
-  - Confirm `formatMemoryLabel` logic and memory IDs.
-
-## Style and UX Guidelines
-- Keep node visuals compact; dense views are expected.
-- Avoid excessive animations; keep interactions snappy.
-- Use clear, readable labels; prefer abbreviations for dense displays.
-
-## Performance Considerations
-React Flow can handle many nodes, but it’s easy to slow down:
-- Keep render logic memoized (as in `useMemo` for node/edge lists).
-- Avoid creating new functions inside render when possible.
-- Keep store updates minimal and targeted.
+  - Ensure the canvas isn’t `Locked`.
+  - Ensure nodes have visible handles (and aren’t covered by overlays).
+- "Edges show as invalid unexpectedly":
+  - Check `relationType` constraints (same-thread vs same-location requirements).
+  - Verify node address resolution (IDs vs legacy `address`/`index` fields).
+- "Shared session won’t load":
+  - Verify `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` and your `litmus_shares` table.
+  - Ensure your host serves `index.html` for `/<uuid>` routes (see `vercel.json` / `docs/sharing.md`).
 
 ## Security and Data Handling
-All data is local; export produces a JSON download.
-If you add persistence or backends:
-- Validate input to avoid malformed graphs.
-- Serialize only necessary fields to avoid privacy leaks.
-
-## Contribution Checklist (For Agents)
-Before submitting changes:
-- Verify new types are in `src/types.ts`.
-- Ensure store actions cover state changes.
-- Keep UI interactions in `EditorCanvas` and `Sidebar`.
-- Update README or docs if a new feature is user-facing.
-- Use Context7 MCP for up-to-date API references.
-
-## Future Extension Ideas
-- Edge editing panel with labels and metadata.
-- Per-thread timeline scaling or lane resizing.
-- Import session JSON.
-- Derived relations (automatic PO edges) as a toggle.
-- Constraint validation with richer error details.
-
+By default, all data is local (snapshots download as JSON).
+Sharing is optional and uses Supabase with an anon key; snapshots are stored as JSON and should be treated as user data.

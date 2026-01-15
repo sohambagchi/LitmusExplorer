@@ -37,6 +37,7 @@ const App = () => {
   const validateGraph = useStore((state) => state.validateGraph);
   const sessionTitle = useStore((state) => state.sessionTitle);
   const setSessionTitle = useStore((state) => state.setSessionTitle);
+  const markSessionSaved = useStore((state) => state.markSessionSaved);
   const modelConfig = useStore((state) => state.modelConfig);
   const memoryEnv = useStore((state) => state.memoryEnv);
   const threads = useStore((state) => state.threads);
@@ -97,6 +98,7 @@ const App = () => {
         const url = `${window.location.origin}/${id}`;
         setShareLink({ id, url });
         setShareDialogOpen(true);
+        markSessionSaved();
       } catch (error) {
         setShareError(
           error instanceof Error ? error.message : "Failed to share session."
@@ -109,6 +111,7 @@ const App = () => {
       activeBranch,
       edges,
       memoryEnv,
+      markSessionSaved,
       modelConfig,
       nodes,
       setSessionTitle,

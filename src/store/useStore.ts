@@ -19,6 +19,7 @@ import type {
 import { checkEdgeConstraints } from "../utils/edgeConstraints";
 import { DEFAULT_MODEL_CONFIG } from "../config/defaultModelConfig";
 import { analyzeCatFiles, type CatModelAnalysis } from "../cat/catParser";
+import { createSessionFingerprint } from "../session/sessionFingerprint";
 
 type NodesUpdater = TraceNode[] | ((nodes: TraceNode[]) => TraceNode[]);
 type EdgesUpdater = RelationEdge[] | ((edges: RelationEdge[]) => RelationEdge[]);
@@ -55,6 +56,11 @@ type StoreState = {
   nodes: TraceNode[];
   edges: RelationEdge[];
   memoryEnv: MemoryVariable[];
+  /**
+   * Fingerprint of the last "saved" state (export/import/new).
+   * Used by UI affordances that need to warn before discarding changes.
+   */
+  savedSessionFingerprint: string;
   selectedMemoryIds: string[];
   threads: string[];
   threadLabels: Record<string, string>;
@@ -90,6 +96,11 @@ type StoreState = {
   setActiveBranch: (branch: ActiveBranch | null) => void;
   cycleEdgeLabelMode: () => void;
   setFocusedEdgeLabelId: (edgeId: string | null) => void;
+  /**
+   * Marks the current session as "saved" by updating `savedSessionFingerprint`.
+   * Intended to be called after successful Export / Share actions.
+   */
+  markSessionSaved: () => void;
   validateGraph: () => void;
   resetSession: () => void;
   importSession: (snapshot: SessionSnapshot) => void;
@@ -123,6 +134,36 @@ const createDefaultModelConfig = (): SessionModelConfig => ({
   relationTypes: [...DEFAULT_MODEL_CONFIG.relationTypes],
   memoryOrders: [...DEFAULT_MODEL_CONFIG.memoryOrders],
 });
+
+const createSavedFingerprint = ({
+  title,
+  modelConfig,
+  memoryEnv,
+  nodes,
+  edges,
+  threads,
+  threadLabels,
+  activeBranch,
+}: {
+  title: string;
+  modelConfig: SessionModelConfig;
+  memoryEnv: MemoryVariable[];
+  nodes: TraceNode[];
+  edges: RelationEdge[];
+  threads: string[];
+  threadLabels: Record<string, string>;
+  activeBranch: ActiveBranch | null;
+}) =>
+  createSessionFingerprint({
+    title,
+    modelConfig,
+    memoryEnv,
+    nodes,
+    edges,
+    threads,
+    threadLabels,
+    activeBranch,
+  });
 
 const uniqueInOrder = (items: string[]) => {
   const seen = new Set<string>();
@@ -168,12 +209,77 @@ const getNextThreadId = (threads: string[]) => {
   return candidate;
 };
 
+const LANE_WIDTH = 260;
+
+/**
+ * Returns the center X coordinate (in litmus space) for the given lane index.
+ *
+ * This must stay in sync with the lane layout logic in `src/components/EditorCanvas.tsx`.
+ */
+const getLaneX = (index: number) => index * LANE_WIDTH + LANE_WIDTH / 2;
+
+/**
+ * Ensures imported nodes are aligned to the lane centers dictated by the thread order.
+ *
+ * This prevents React Flow's layout normalization effects from immediately "dirtying"
+ * freshly-imported sessions (fixtures, file imports, shared sessions).
+ */
+const normalizeImportedNodeLanes = ({
+  nodes,
+  threads,
+}: {
+  nodes: TraceNode[];
+  threads: string[];
+}) => {
+  const threadSet = new Set(threads);
+  const threadsForLayout = [...threads];
+
+  for (const node of nodes) {
+    const threadId = node.data.threadId;
+    if (!threadSet.has(threadId)) {
+      threadSet.add(threadId);
+      threadsForLayout.push(threadId);
+    }
+  }
+
+  const laneByThread = new Map(
+    threadsForLayout.map((threadId, index) => [threadId, index] as const)
+  );
+
+  const normalizedNodes = nodes.map((node) => {
+    const laneIndex = laneByThread.get(node.data.threadId) ?? 0;
+    const laneCenter = getLaneX(laneIndex);
+    if (node.position.y === laneCenter) {
+      return node;
+    }
+    return {
+      ...node,
+      position: {
+        ...node.position,
+        y: laneCenter,
+      },
+    };
+  });
+
+  return { nodes: normalizedNodes, threadsForLayout };
+};
+
 export const useStore = create<StoreState>()((set, get) => ({
   sessionTitle: "",
   modelConfig: createDefaultModelConfig(),
   nodes: [],
   edges: [],
   memoryEnv: createDefaultMemoryEnv(),
+  savedSessionFingerprint: createSavedFingerprint({
+    title: "",
+    modelConfig: createDefaultModelConfig(),
+    memoryEnv: createDefaultMemoryEnv(),
+    nodes: [],
+    edges: [],
+    threads: ["T0"],
+    threadLabels: {},
+    activeBranch: null,
+  }),
   selectedMemoryIds: [],
   threads: ["T0"],
   threadLabels: {},
@@ -202,6 +308,25 @@ export const useStore = create<StoreState>()((set, get) => ({
       return { edgeLabelMode: next, focusedEdgeLabelId: null };
     }),
   setFocusedEdgeLabelId: (edgeId) => set({ focusedEdgeLabelId: edgeId }),
+  markSessionSaved: () => {
+    /**
+     * This is used by UI actions that "save" without importing/resetting (e.g. Export).
+     * For import/reset, the store directly writes a fresh `savedSessionFingerprint`.
+     */
+    const current = get();
+    set({
+      savedSessionFingerprint: createSavedFingerprint({
+        title: current.sessionTitle,
+        modelConfig: current.modelConfig,
+        memoryEnv: current.memoryEnv,
+        nodes: current.nodes,
+        edges: current.edges,
+        threads: current.threads,
+        threadLabels: current.threadLabels,
+        activeBranch: current.activeBranch,
+      }),
+    });
+  },
   importCatFiles: async (files) => {
     const fileList = Array.isArray(files) ? files : Array.from(files);
     if (fileList.length === 0) {
@@ -588,38 +713,79 @@ export const useStore = create<StoreState>()((set, get) => ({
     set({ edges: updatedEdges });
   },
   resetSession: () =>
-    set({
-      sessionTitle: "",
-      modelConfig: createDefaultModelConfig(),
-      nodes: [],
-      edges: [],
-      memoryEnv: createDefaultMemoryEnv(),
-      selectedMemoryIds: [],
-      threads: ["T0"],
-      threadLabels: {},
-      activeBranch: null,
-      catModel: { filesByName: {}, analysis: null, definitions: [], error: null },
+    set(() => {
+      const modelConfig = createDefaultModelConfig();
+      const memoryEnv = createDefaultMemoryEnv();
+      const nodes: TraceNode[] = [];
+      const edges: RelationEdge[] = [];
+      const threads = ["T0"];
+      const threadLabels: Record<string, string> = {};
+      const activeBranch = null;
+      const sessionTitle = "";
+
+      return {
+        sessionTitle,
+        modelConfig,
+        nodes,
+        edges,
+        memoryEnv,
+        savedSessionFingerprint: createSavedFingerprint({
+          title: sessionTitle,
+          modelConfig,
+          memoryEnv,
+          nodes,
+          edges,
+          threads,
+          threadLabels,
+          activeBranch,
+        }),
+        selectedMemoryIds: [],
+        threads,
+        threadLabels,
+        activeBranch,
+        catModel: { filesByName: {}, analysis: null, definitions: [], error: null },
+      };
     }),
   importSession: (snapshot) => {
-    const nextThreads = snapshot.threads.length > 0 ? snapshot.threads : ["T0"];
-    const nextThreadLabels: Record<string, string> = {};
-    for (const threadId of nextThreads) {
+    const sessionTitle = snapshot.title ?? "";
+    const modelConfig = normalizeModelConfig(
+      snapshot.model ?? createDefaultModelConfig()
+    );
+    const nodes = snapshot.nodes.map((node) => ({ ...node, selected: false }));
+    const edges = snapshot.edges.map((edge) => ({ ...edge, selected: false }));
+    const memoryEnv = flattenMemorySnapshot(snapshot);
+    const threads = snapshot.threads.length > 0 ? snapshot.threads : ["T0"];
+    const threadLabels: Record<string, string> = {};
+    for (const threadId of threads) {
       const label = snapshot.threadLabels?.[threadId]?.trim();
       if (label) {
-        nextThreadLabels[threadId] = label;
+        threadLabels[threadId] = label;
       }
     }
+    const activeBranch = snapshot.activeBranch;
+
+    const normalized = normalizeImportedNodeLanes({ nodes, threads });
 
     set({
-      sessionTitle: snapshot.title ?? "",
-      modelConfig: normalizeModelConfig(snapshot.model ?? createDefaultModelConfig()),
-      nodes: snapshot.nodes.map((node) => ({ ...node, selected: false })),
-      edges: snapshot.edges.map((edge) => ({ ...edge, selected: false })),
-      memoryEnv: flattenMemorySnapshot(snapshot),
+      sessionTitle,
+      modelConfig,
+      nodes: normalized.nodes,
+      edges,
+      memoryEnv,
+      savedSessionFingerprint: createSavedFingerprint({
+        title: sessionTitle,
+        modelConfig,
+        memoryEnv,
+        nodes: normalized.nodes,
+        edges,
+        threads,
+        threadLabels,
+        activeBranch,
+      }),
       selectedMemoryIds: [],
-      threads: nextThreads,
-      threadLabels: nextThreadLabels,
-      activeBranch: snapshot.activeBranch,
+      threads,
+      threadLabels,
+      activeBranch,
       catModel: { filesByName: {}, analysis: null, definitions: [], error: null },
     });
   },

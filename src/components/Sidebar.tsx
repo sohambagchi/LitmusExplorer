@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -14,17 +15,20 @@ import type {
   MemoryVariable,
   OperationType,
   RelationType,
+  SessionSnapshot,
 } from "../types";
 import { useStore } from "../store/useStore";
 import { parseSessionSnapshot } from "../session/parseSessionSnapshot";
 import { createSessionSnapshot } from "../session/createSessionSnapshot";
+import { createSessionFingerprint } from "../session/sessionFingerprint";
 import { checkEdgeConstraints } from "../utils/edgeConstraints";
 import BranchConditionEditor from "./BranchConditionEditor";
 import { evaluateBranchCondition } from "../utils/branchEvaluation";
 import SessionTitleDialog from "./SessionTitleDialog";
 import RelationDefinitionsDialog from "./RelationDefinitionsDialog";
 import TutorialDialog from "./TutorialDialog";
-import { Trash2 } from "lucide-react";
+import ConfirmDiscardDialog from "./ConfirmDiscardDialog";
+import { ArrowRight, Trash2 } from "lucide-react";
 
 type SidebarProps = {
   /**
@@ -109,6 +113,38 @@ const formatMemoryLabel = (
   return `${parentName}.${name}`;
 };
 
+type BasicTestFixture = {
+  id: string;
+  title: string;
+  snapshot: SessionSnapshot;
+};
+
+const BASIC_TEST_FIXTURES: BasicTestFixture[] = (() => {
+  const modules = import.meta.glob("../../tests/basic/*.json", {
+    eager: true,
+  }) as Record<string, { default: unknown }>;
+
+  const fixtures: BasicTestFixture[] = [];
+
+  for (const [path, module] of Object.entries(modules)) {
+    const fileName = path.split("/").pop() ?? path;
+    const id = fileName.replace(/\.json$/i, "");
+    try {
+      const snapshot = parseSessionSnapshot(module.default);
+      fixtures.push({
+        id,
+        title: snapshot.title ?? id,
+        snapshot,
+      });
+    } catch {
+      // Ignore invalid fixtures so the UI never crashes in production builds.
+    }
+  }
+
+  fixtures.sort((a, b) => a.title.localeCompare(b.title));
+  return fixtures;
+})();
+
 const Sidebar = ({ onNewSession }: SidebarProps) => {
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     if (typeof window === "undefined") {
@@ -138,6 +174,10 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
   const validateGraph = useStore((state) => state.validateGraph);
   const sessionTitle = useStore((state) => state.sessionTitle);
   const setSessionTitle = useStore((state) => state.setSessionTitle);
+  const savedSessionFingerprint = useStore(
+    (state) => state.savedSessionFingerprint
+  );
+  const markSessionSaved = useStore((state) => state.markSessionSaved);
   const modelConfig = useStore((state) => state.modelConfig);
   const resetModelConfig = useStore((state) => state.resetModelConfig);
   const importCatFiles = useStore((state) => state.importCatFiles);
@@ -153,6 +193,11 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [relationDialogOpen, setRelationDialogOpen] = useState(false);
   const [tutorialDialogOpen, setTutorialDialogOpen] = useState(false);
+  const basicTestSelectId = useId();
+  const [selectedBasicTestId, setSelectedBasicTestId] = useState(() => {
+    return BASIC_TEST_FIXTURES[0]?.id ?? "";
+  });
+  const [discardBasicLoadOpen, setDiscardBasicLoadOpen] = useState(false);
 
   /**
    * Starts a blank session and lets the parent clear any UUID from the URL.
@@ -303,11 +348,15 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
         : "litmus-session.json";
       link.click();
       URL.revokeObjectURL(url);
+
+      // Export is treated as a "save" for purposes of discard confirmation prompts.
+      markSessionSaved();
     },
     [
       activeBranch,
       edges,
       memoryEnv,
+      markSessionSaved,
       modelConfig,
       nodes,
       setSessionTitle,
@@ -332,6 +381,7 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
           snapshot.title || !fileTitle || fileTitle === "litmus-session"
             ? snapshot
             : { ...snapshot, title: fileTitle };
+        onNewSession?.();
         importSession(snapshotWithTitle);
       } catch (error) {
         setImportError(
@@ -339,8 +389,66 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
         );
       }
     },
-    [importSession]
+    [importSession, onNewSession]
   );
+
+  const currentSessionFingerprint = useMemo(
+    () =>
+      createSessionFingerprint({
+        title: sessionTitle,
+        modelConfig,
+        memoryEnv,
+        nodes,
+        edges,
+        threads,
+        threadLabels,
+        activeBranch,
+      }),
+    [
+      activeBranch,
+      edges,
+      memoryEnv,
+      modelConfig,
+      nodes,
+      sessionTitle,
+      threadLabels,
+      threads,
+    ]
+  );
+  const hasUnsavedChanges = savedSessionFingerprint !== currentSessionFingerprint;
+
+  const selectedBasicFixture = useMemo(() => {
+    if (!selectedBasicTestId) {
+      return null;
+    }
+    return (
+      BASIC_TEST_FIXTURES.find((fixture) => fixture.id === selectedBasicTestId) ??
+      null
+    );
+  }, [selectedBasicTestId]);
+
+  /**
+   * Loads a basic fixture into the editor, replacing the current session.
+   */
+  const loadBasicFixture = useCallback(
+    (fixture: BasicTestFixture) => {
+      setImportError(null);
+      onNewSession?.();
+      importSession(fixture.snapshot);
+    },
+    [importSession, onNewSession]
+  );
+
+  const requestLoadBasicFixture = useCallback(() => {
+    if (!selectedBasicFixture) {
+      return;
+    }
+    if (hasUnsavedChanges) {
+      setDiscardBasicLoadOpen(true);
+      return;
+    }
+    loadBasicFixture(selectedBasicFixture);
+  }, [hasUnsavedChanges, loadBasicFixture, selectedBasicFixture]);
 
   const handleImportCatFiles = useCallback(
     async (fileList: FileList | null) => {
@@ -655,6 +763,38 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
               void handleImportSessionFile(file);
             }}
           />
+          {BASIC_TEST_FIXTURES.length ? (
+            <div className="flex w-full items-stretch gap-2">
+              <label htmlFor={basicTestSelectId} className="sr-only">
+                Basic tests
+              </label>
+              <select
+                id={basicTestSelectId}
+                className="min-w-0 flex-1 rounded border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-800"
+                value={selectedBasicTestId}
+                onChange={(event) => setSelectedBasicTestId(event.target.value)}
+              >
+                {BASIC_TEST_FIXTURES.map((fixture) => (
+                  <option key={fixture.id} value={fixture.id}>
+                    {fixture.title}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="inline-flex h-8 w-8 flex-none items-center justify-center rounded border border-slate-300 bg-white text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                aria-label={
+                  selectedBasicFixture
+                    ? `Load ${selectedBasicFixture.title}`
+                    : "Load basic test"
+                }
+                disabled={!selectedBasicFixture}
+                onClick={requestLoadBasicFixture}
+              >
+                <ArrowRight className="h-4 w-4" />
+              </button>
+            </div>
+          ) : null}
           {importError ? (
             <div className="text-xs text-red-600">{importError}</div>
           ) : null}
@@ -757,6 +897,24 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
         onConfirm={(title) => {
           setExportDialogOpen(false);
           exportSession(title);
+        }}
+      />
+
+      <ConfirmDiscardDialog
+        open={discardBasicLoadOpen}
+        title="Discard current session?"
+        description={
+          selectedBasicFixture
+            ? `You have unsaved changes. Loading "${selectedBasicFixture.title}" will replace the current canvas.`
+            : "You have unsaved changes. Loading a basic test will replace the current canvas."
+        }
+        confirmLabel="Discard & load"
+        onCancel={() => setDiscardBasicLoadOpen(false)}
+        onConfirm={() => {
+          setDiscardBasicLoadOpen(false);
+          if (selectedBasicFixture) {
+            loadBasicFixture(selectedBasicFixture);
+          }
         }}
       />
 

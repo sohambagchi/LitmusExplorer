@@ -277,6 +277,8 @@ const LaneLabelsOverlay = ({
   onDuplicateThread,
   threadLabels,
   onSetThreadLabel,
+  onReorderThreads,
+  isLocked,
 }: {
   threads: string[];
   nextThreadId: string;
@@ -285,85 +287,225 @@ const LaneLabelsOverlay = ({
   onDuplicateThread: (threadId: string) => void;
   threadLabels: Record<string, string>;
   onSetThreadLabel: (threadId: string, label: string) => void;
-}) => (
-  <div
-    className="pointer-events-none absolute inset-x-0 top-0 z-20 flex border-b border-slate-200 bg-slate-100/85"
-    style={{ height: LANE_LABEL_HEIGHT }}
-  >
-    {threads.map((threadId, index) => (
-      <div
-        key={`${threadId}-${index}`}
-        className="relative flex items-start justify-center border-r border-slate-200 p-1.5"
-        style={{ width: LANE_WIDTH }}
-      >
-        <div className="pointer-events-auto w-full max-w-[220px] rounded-md border border-slate-800 bg-slate-900/95 p-1 text-white shadow-sm">
-          <div className="flex h-5 items-center justify-between gap-2">
-            <div className="flex h-5 items-center rounded px-2 text-[11px] font-semibold leading-none text-white">
-              {threadId}
-            </div>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                className="flex h-5 w-5 items-center justify-center rounded border border-white/10 bg-white/5 text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white/5"
-                disabled={(nodeCountsByThread.get(threadId) ?? 0) === 0}
+  /**
+   * Called with a new thread ordering after a drag/drop reorder gesture.
+   */
+  onReorderThreads: ((threads: string[]) => void) | null;
+  /**
+   * When locked, the UI disables thread reordering to prevent accidental layout changes.
+   */
+  isLocked: boolean;
+}) => {
+  /**
+   * Compute a stable "move item to insertion index" reorder.
+   *
+   * @param current - Current ordered thread ids.
+   * @param movingThreadId - Thread id being moved.
+   * @param insertIndex - Desired insertion index in the *original* array (0..len).
+   */
+  const reorder = useCallback(
+    (current: string[], movingThreadId: string, insertIndex: number) => {
+      const fromIndex = current.indexOf(movingThreadId);
+      if (fromIndex < 0) {
+        return current;
+      }
+
+      const next = [...current];
+      next.splice(fromIndex, 1);
+
+      // If the item came from before the insertion point, the removal shifts the
+      // indices left by 1.
+      const adjustedIndex =
+        fromIndex < insertIndex ? Math.max(0, insertIndex - 1) : insertIndex;
+      const clampedIndex = Math.max(0, Math.min(adjustedIndex, next.length));
+      next.splice(clampedIndex, 0, movingThreadId);
+      return next;
+    },
+    []
+  );
+
+  const [dragOverInsertIndex, setDragOverInsertIndex] = useState<number | null>(
+    null
+  );
+
+  const isThreadDrag = (event: DragEvent) =>
+    Array.from(event.dataTransfer.types).includes("application/litmus-thread");
+
+  const handleDragStart = useCallback(
+    (event: DragEvent<HTMLElement>, threadId: string) => {
+      if (isLocked) {
+        event.preventDefault();
+        return;
+      }
+      event.dataTransfer.setData("application/litmus-thread", threadId);
+      event.dataTransfer.effectAllowed = "move";
+    },
+    [isLocked]
+  );
+
+  const handleDragEnd = useCallback(() => {
+    setDragOverInsertIndex(null);
+  }, []);
+
+  const handleDragOverLane = useCallback(
+    (event: DragEvent<HTMLDivElement>, laneIndex: number) => {
+      if (!isThreadDrag(event) || isLocked) {
+        return;
+      }
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+
+      const bounds = event.currentTarget.getBoundingClientRect();
+      const insertAfter = event.clientX >= bounds.left + bounds.width / 2;
+      setDragOverInsertIndex(insertAfter ? laneIndex + 1 : laneIndex);
+    },
+    [isLocked]
+  );
+
+  const handleDropAt = useCallback(
+    (event: DragEvent<HTMLDivElement>, insertIndex: number) => {
+      if (!isThreadDrag(event) || isLocked) {
+        return;
+      }
+      event.preventDefault();
+
+      const movingThreadId = event.dataTransfer.getData(
+        "application/litmus-thread"
+      );
+      if (!movingThreadId) {
+        return;
+      }
+
+      setDragOverInsertIndex(null);
+      if (!onReorderThreads) {
+        return;
+      }
+
+      const next = reorder(threads, movingThreadId, insertIndex);
+      onReorderThreads(next);
+    },
+    [isLocked, onReorderThreads, reorder, threads]
+  );
+
+  return (
+    <div
+      className="pointer-events-none absolute inset-x-0 top-0 z-20 flex border-b border-slate-200 bg-slate-100/85"
+      style={{ height: LANE_LABEL_HEIGHT }}
+    >
+      {threads.map((threadId, index) => {
+        const showLeftIndicator = dragOverInsertIndex === index;
+        const showRightIndicator = dragOverInsertIndex === index + 1;
+
+        return (
+          <div
+            key={`${threadId}-${index}`}
+            className="pointer-events-auto relative flex items-start justify-center border-r border-slate-200 p-1.5"
+            style={{ width: LANE_WIDTH }}
+            onDragOver={(event) => handleDragOverLane(event, index)}
+            onDrop={(event) => {
+              if (!isThreadDrag(event) || isLocked) {
+                return;
+              }
+              const bounds = event.currentTarget.getBoundingClientRect();
+              const insertAfter = event.clientX >= bounds.left + bounds.width / 2;
+              handleDropAt(event, insertAfter ? index + 1 : index);
+            }}
+          >
+            {showLeftIndicator ? (
+              <div className="pointer-events-none absolute inset-y-1 left-0 w-1 rounded bg-sky-500/80" />
+            ) : null}
+            {showRightIndicator ? (
+              <div className="pointer-events-none absolute inset-y-1 right-0 w-1 rounded bg-sky-500/80" />
+            ) : null}
+
+            <div className="w-full max-w-[220px] rounded-md border border-slate-800 bg-slate-900/95 p-1 text-white shadow-sm">
+              <div className="flex h-5 items-center justify-between gap-2">
+                <div
+                  className={`flex h-5 items-center rounded px-2 text-[11px] font-semibold leading-none text-white ${
+                    isLocked ? "cursor-not-allowed opacity-70" : "cursor-move"
+                  }`}
+                  draggable={!isLocked}
+                  onDragStart={(event) => handleDragStart(event, threadId)}
+                  onDragEnd={handleDragEnd}
+                  title={isLocked ? "Unlock to reorder threads" : "Drag to reorder"}
+                  aria-label={`Drag ${threadId} to reorder`}
+                >
+                  {threadId}
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    className="flex h-5 w-5 items-center justify-center rounded border border-white/10 bg-white/5 text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white/5"
+                    disabled={(nodeCountsByThread.get(threadId) ?? 0) === 0}
+                    onMouseDown={(event) => {
+                      event.stopPropagation();
+                    }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onDuplicateThread(threadId);
+                    }}
+                    title={`Duplicate ${threadId} (${nodeCountsByThread.get(threadId) ?? 0} nodes)`}
+                    aria-label={`Duplicate ${threadId}`}
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    className="flex h-5 w-5 items-center justify-center rounded border border-white/10 bg-white/5 text-[11px] font-semibold leading-none text-white hover:bg-white/10"
+                    onMouseDown={(event) => {
+                      event.stopPropagation();
+                    }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onRequestDeleteThread(threadId);
+                    }}
+                    title={`Delete ${threadId} (${nodeCountsByThread.get(threadId) ?? 0} nodes)`}
+                    aria-label={`Delete ${threadId}`}
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+              <input
+                value={threadLabels[threadId] ?? ""}
+                placeholder="Label"
+                className="mt-1.5 h-7 w-full rounded border border-white/10 bg-white/5 px-2 text-[13px] font-semibold text-white placeholder:text-white/50 focus:border-white/20 focus:outline-none"
                 onMouseDown={(event) => {
                   event.stopPropagation();
                 }}
                 onClick={(event) => {
                   event.stopPropagation();
-                  onDuplicateThread(threadId);
                 }}
-                title={`Duplicate ${threadId} (${nodeCountsByThread.get(threadId) ?? 0} nodes)`}
-                aria-label={`Duplicate ${threadId}`}
-              >
-                <Copy className="h-3.5 w-3.5" />
-              </button>
-              <button
-                type="button"
-                className="flex h-5 w-5 items-center justify-center rounded border border-white/10 bg-white/5 text-[11px] font-semibold leading-none text-white hover:bg-white/10"
-                onMouseDown={(event) => {
-                  event.stopPropagation();
+                onChange={(event) => {
+                  onSetThreadLabel(threadId, event.target.value);
                 }}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onRequestDeleteThread(threadId);
-                }}
-                title={`Delete ${threadId} (${nodeCountsByThread.get(threadId) ?? 0} nodes)`}
-                aria-label={`Delete ${threadId}`}
-              >
-                ✕
-              </button>
+                aria-label={`Label for ${threadId}`}
+              />
             </div>
           </div>
-          <input
-            value={threadLabels[threadId] ?? ""}
-            placeholder="Label"
-            className="mt-1.5 h-7 w-full rounded border border-white/10 bg-white/5 px-2 text-[13px] font-semibold text-white placeholder:text-white/50 focus:border-white/20 focus:outline-none"
-            onMouseDown={(event) => {
-              event.stopPropagation();
-            }}
-            onClick={(event) => {
-              event.stopPropagation();
-            }}
-            onChange={(event) => {
-              onSetThreadLabel(threadId, event.target.value);
-            }}
-            aria-label={`Label for ${threadId}`}
-          />
+        );
+      })}
+      <div
+        className="pointer-events-auto relative flex flex-col items-center justify-center gap-1 border-r border-dashed border-slate-300"
+        style={{ width: LANE_WIDTH }}
+        onDragOver={(event) => {
+          if (!isThreadDrag(event) || isLocked) {
+            return;
+          }
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+          setDragOverInsertIndex(threads.length);
+        }}
+        onDrop={(event) => handleDropAt(event, threads.length)}
+      >
+        <div className="rounded bg-slate-700/80 px-2 py-1 text-[10px] font-semibold text-white/90">
+          {nextThreadId}
         </div>
+        <div className="text-[10px] font-medium text-slate-500">Drop to add</div>
       </div>
-    ))}
-    <div
-      className="relative flex flex-col items-center justify-center gap-1 border-r border-dashed border-slate-300"
-      style={{ width: LANE_WIDTH }}
-    >
-      <div className="rounded bg-slate-700/80 px-2 py-1 text-[10px] font-semibold text-white/90">
-        {nextThreadId}
-      </div>
-      <div className="text-[10px] font-medium text-slate-500">Drop to add</div>
     </div>
-  </div>
-);
+  );
+};
 
 const EditorCanvas = () => {
   const nodes = useStore((state) => state.nodes);
@@ -372,6 +514,7 @@ const EditorCanvas = () => {
   const selectedMemoryIds = useStore((state) => state.selectedMemoryIds);
   const threads = useStore((state) => state.threads);
   const threadLabels = useStore((state) => state.threadLabels);
+  const setThreads = useStore((state) => state.setThreads);
   const setNodes = useStore((state) => state.setNodes);
   const onEdgesChange = useStore((state) => state.onEdgesChange);
   const setEdges = useStore((state) => state.setEdges);
@@ -1699,6 +1842,8 @@ const EditorCanvas = () => {
               onDuplicateThread={duplicateThread}
               threadLabels={threadLabels}
               onSetThreadLabel={setThreadLabel}
+              onReorderThreads={setThreads}
+              isLocked={isLocked}
             />
             <ConfirmDialog
               open={pendingMemoryDelete !== null}

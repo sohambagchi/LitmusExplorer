@@ -115,6 +115,19 @@ type StoreState = {
   toggleMemorySelection: (id: string) => void;
   clearMemorySelection: () => void;
   groupSelectedIntoStruct: () => void;
+  /**
+   * Updates the explicit thread ordering and realigns every node to the lane centers
+   * implied by that ordering.
+   *
+   * Notes:
+   * - Thread ids can originate from imported sessions; nodes may reference ids that
+   *   are missing from the current `threads` list. This function appends any such
+   *   thread ids (in deterministic discovery order) so lane math stays consistent.
+   * - Reordering threads mutates node positions (litmus-space `position.y`) so the
+   *   visual columns move with the thread id.
+   *
+   * @param threads - Ordered list of thread ids (e.g. `["T0", "T2", "T1"]`).
+   */
   setThreads: (threads: string[]) => void;
   addThread: () => string;
   setThreadLabel: (threadId: string, label: string) => void;
@@ -777,14 +790,48 @@ export const useStore = create<StoreState>()((set, get) => ({
   },
   setThreads: (threads) =>
     set((state) => {
-      const validThreads = new Set(threads);
+      /**
+       * Accept the requested order, but always include any thread ids referenced
+       * by nodes. This avoids leaving nodes "orphaned" in a lane that no longer
+       * has a corresponding header column.
+       */
+      const requestedOrder = uniqueInOrder(threads);
+      const validThreads = new Set(requestedOrder);
+      const completeOrder = [...requestedOrder];
+
+      for (const node of state.nodes) {
+        const threadId = node.data.threadId;
+        if (!validThreads.has(threadId)) {
+          validThreads.add(threadId);
+          completeOrder.push(threadId);
+        }
+      }
+
+      const laneCenterByThread = new Map(
+        completeOrder.map((threadId, index) => [threadId, getLaneX(index)] as const)
+      );
+
+      const alignedNodes = state.nodes.map((node) => {
+        const laneCenter = laneCenterByThread.get(node.data.threadId);
+        if (typeof laneCenter === "undefined" || node.position.y === laneCenter) {
+          return node;
+        }
+        return {
+          ...node,
+          position: {
+            ...node.position,
+            y: laneCenter,
+          },
+        };
+      });
+
       const nextLabels: Record<string, string> = {};
       for (const [threadId, label] of Object.entries(state.threadLabels)) {
         if (validThreads.has(threadId)) {
           nextLabels[threadId] = label;
         }
       }
-      return { threads, threadLabels: nextLabels };
+      return { threads: completeOrder, threadLabels: nextLabels, nodes: alignedNodes };
     }),
   addThread: () => {
     const currentThreads = get().threads;

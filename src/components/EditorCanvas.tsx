@@ -34,6 +34,7 @@ import RelationEdgeComponent from "./RelationEdge";
 import { createBranchGroupCondition } from "../utils/branchConditionFactory";
 import { evaluateBranchCondition } from "../utils/branchEvaluation";
 import ConfirmDialog from "./ConfirmDialog";
+import { exportReactFlowViewportToPng } from "../utils/exportReactFlowPng";
 
 const LANE_HEIGHT = 120;
 const LANE_LABEL_WIDTH = 64;
@@ -41,6 +42,19 @@ const GRID_X = 80;
 const MIN_SEQUENCE_INDEX = 1;
 const MAX_CANVAS_X = 200_000;
 const PAN_SPEED = 1;
+
+const sanitizeFilename = (raw: string) =>
+  raw
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const formatTimestampForFilename = (date: Date) => {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+    date.getDate()
+  )}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
+};
 
 const MEMORY_SECTIONS: { label: string; scope: MemoryScope }[] = [
   { label: "Constants", scope: "constants" },
@@ -244,9 +258,12 @@ const EditorCanvas = () => {
   const toggleMemorySelection = useStore(
     (state) => state.toggleMemorySelection
   );
+  const sessionTitle = useStore((state) => state.sessionTitle);
   const reactFlowInstance = useRef<ReactFlowInstance | null>(null);
+  const reactFlowWrapperRef = useRef<HTMLDivElement | null>(null);
   const idCounter = useRef(1);
   const [isLocked, setIsLocked] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [pendingThreadDelete, setPendingThreadDelete] = useState<{
     threadId: string;
     nodeCount: number;
@@ -690,6 +707,41 @@ const EditorCanvas = () => {
     reactFlowInstance.current?.fitView();
   }, []);
 
+  const handleExportPng = useCallback(async () => {
+    const flow = reactFlowInstance.current;
+    const wrapper = reactFlowWrapperRef.current;
+    if (!flow || !wrapper) {
+      return;
+    }
+
+    const viewportElement = wrapper.querySelector<HTMLElement>(
+      ".react-flow__viewport"
+    );
+    if (!viewportElement) {
+      return;
+    }
+
+    const safeTitle = sanitizeFilename(sessionTitle.trim());
+    const filename = safeTitle
+      ? `${safeTitle}.png`
+      : `${formatTimestampForFilename(new Date())}.png`;
+
+    setIsExporting(true);
+    try {
+      await exportReactFlowViewportToPng({
+        viewportElement,
+        nodes: flow.getNodes(),
+        filename,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to export image.";
+      window.alert(message);
+    } finally {
+      setIsExporting(false);
+    }
+  }, [sessionTitle]);
+
   const handleAddThread = useCallback(() => {
     addThread();
   }, [addThread]);
@@ -1100,6 +1152,7 @@ const EditorCanvas = () => {
             className="relative w-full"
             style={{ height: canvasHeight }}
             onWheelCapture={handleWheelPan}
+            ref={reactFlowWrapperRef}
           >
             <LaneBackgroundOverlay
               threads={threadsForLayout}
@@ -1258,6 +1311,14 @@ const EditorCanvas = () => {
                 : edgeLabelMode === "nonPo"
                   ? "Relations"
                   : "Off"}
+            </button>
+            <button
+              type="button"
+              className="rounded border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={handleExportPng}
+              disabled={isExporting}
+            >
+              {isExporting ? "Exporting..." : "Export PNG"}
             </button>
           </div>
           <button

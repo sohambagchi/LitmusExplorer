@@ -1,5 +1,5 @@
 {
-  "title": "StoreBuffering",
+  "title": "2+2W",
   "model": {
     "relationTypes": ["rf", "co", "fr", "po", "ad", "cd", "dd"],
     "memoryOrders": ["Standard", "Relaxed", "Acquire", "Release", "Acq_Rel", "SC"]
@@ -8,10 +8,7 @@
     "constants": [
       { "id": "const-null", "name": "NULL", "type": "int", "scope": "constants", "value": "0" }
     ],
-    "locals": [
-      { "id": "local-t0-r0", "name": "r0", "type": "int", "scope": "locals", "value": "" },
-      { "id": "local-t1-r1", "name": "r1", "type": "int", "scope": "locals", "value": "" }
-    ],
+    "locals": [],
     "shared": [
       { "id": "mem-x", "name": "X", "type": "int", "value": "0" },
       { "id": "mem-y", "name": "Y", "type": "int", "value": "0" }
@@ -24,7 +21,7 @@
     },
     {
       "id": "node-t0-op2", "type": "operation", "position": { "x": 250, "y": 60 },
-      "data": { "threadId": "T0", "sequenceIndex": 2, "operation": { "type": "LOAD", "addressId": "mem-y", "resultId": "local-t0-r0", "memoryOrder": "Relaxed" } }
+      "data": { "threadId": "T0", "sequenceIndex": 2, "operation": { "type": "STORE", "addressId": "mem-y", "value": "2", "memoryOrder": "Relaxed" } }
     },
     {
       "id": "node-t1-op1", "type": "operation", "position": { "x": 80, "y": 180 },
@@ -32,14 +29,14 @@
     },
     {
       "id": "node-t1-op2", "type": "operation", "position": { "x": 250, "y": 180 },
-      "data": { "threadId": "T1", "sequenceIndex": 2, "operation": { "type": "LOAD", "addressId": "mem-x", "resultId": "local-t1-r1", "memoryOrder": "Relaxed" } }
+      "data": { "threadId": "T1", "sequenceIndex": 2, "operation": { "type": "STORE", "addressId": "mem-x", "value": "2", "memoryOrder": "Relaxed" } }
     }
   ],
   "edges": [
     { "source": "node-t0-op1", "target": "node-t0-op2", "id": "edge-po-0", "type": "relation", "data": { "relationType": "po", "invalid": false } },
     { "source": "node-t1-op1", "target": "node-t1-op2", "id": "edge-po-1", "type": "relation", "data": { "relationType": "po", "invalid": false } },
-    { "source": "node-t0-op2", "target": "node-t1-op1", "id": "edge-fr-0", "type": "relation", "data": { "relationType": "fr", "invalid": false } },
-    { "source": "node-t1-op2", "target": "node-t0-op1", "id": "edge-fr-1", "type": "relation", "data": { "relationType": "fr", "invalid": false } }
+    { "source": "node-t0-op2", "target": "node-t1-op1", "id": "edge-co-0", "type": "relation", "data": { "relationType": "co", "invalid": false } },
+    { "source": "node-t1-op2", "target": "node-t0-op1", "id": "edge-co-1", "type": "relation", "data": { "relationType": "co", "invalid": false } }
   ],
   "threads": ["T0", "T1"],
   "activeBranch": null

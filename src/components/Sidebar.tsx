@@ -122,7 +122,7 @@ type BasicTestFixture = {
 };
 
 const BASIC_TEST_FIXTURES: BasicTestFixture[] = (() => {
-  const modules = import.meta.glob("../../tests/basic/*.json", {
+  const modules = import.meta.glob("../../assets/basic/*.json", {
     eager: true,
   }) as Record<string, { default: unknown }>;
 
@@ -144,6 +144,29 @@ const BASIC_TEST_FIXTURES: BasicTestFixture[] = (() => {
   }
 
   fixtures.sort((a, b) => a.title.localeCompare(b.title));
+  return fixtures;
+})();
+
+type CatAssetFixture = {
+  name: string;
+  text: string;
+};
+
+const LKMM_CAT_FIXTURES: CatAssetFixture[] = (() => {
+  const modules = import.meta.glob<string>("../../assets/cat/lkmm/*.cat", {
+    eager: true,
+    query: "?raw",
+    import: "default",
+  });
+
+  const fixtures: CatAssetFixture[] = [];
+
+  for (const [path, text] of Object.entries(modules)) {
+    const fileName = path.split("/").pop() ?? path;
+    fixtures.push({ name: fileName, text });
+  }
+
+  fixtures.sort((a, b) => a.name.localeCompare(b.name));
   return fixtures;
 })();
 
@@ -453,17 +476,33 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
   }, [hasUnsavedChanges, loadBasicFixture, selectedBasicFixture]);
 
   const handleImportCatFiles = useCallback(
-    async (fileList: FileList | null) => {
-      if (!fileList || fileList.length === 0) {
+    async (files: FileList | File[] | null) => {
+      if (!files || files.length === 0) {
         return;
       }
-      await importCatFiles(fileList);
+      await importCatFiles(files);
       if (catFileInputRef.current) {
         catFileInputRef.current.value = "";
       }
     },
     [importCatFiles]
   );
+
+  /**
+   * Loads the bundled LKMM `.cat` files into the same store entry-point that
+   * manual uploads use (`importCatFiles`).
+   */
+  const handleImportLkmmCats = useCallback(async () => {
+    if (LKMM_CAT_FIXTURES.length === 0) {
+      return;
+    }
+
+    const files = LKMM_CAT_FIXTURES.map(
+      (fixture) => new File([fixture.text], fixture.name, { type: "text/plain" })
+    );
+
+    await handleImportCatFiles(files);
+  }, [handleImportCatFiles]);
 
   const selectedMemoryItems = useMemo(
     () =>
@@ -893,13 +932,23 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
           >
             View Relation Definitions
           </button>
-          <button
-            type="button"
-            className="w-full rounded border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-800"
-            onClick={resetModelConfig}
-          >
-            Reset Model Config
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="flex-1 rounded border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-800"
+              onClick={resetModelConfig}
+            >
+              Reset Model Config
+            </button>
+            <button
+              type="button"
+              className="flex-1 rounded border border-dashed border-slate-300 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={LKMM_CAT_FIXTURES.length === 0}
+              onClick={() => void handleImportLkmmCats()}
+            >
+              LKMM
+            </button>
+          </div>
         </div>
       </section>
 

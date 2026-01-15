@@ -1,0 +1,46 @@
+{
+  "title": "MessagePassing",
+  "model": {
+    "relationTypes": ["rf", "co", "fr", "po", "ad", "cd", "dd"],
+    "memoryOrders": ["Standard", "Relaxed", "Acquire", "Release", "Acq_Rel", "SC"]
+  },
+  "memory": {
+    "constants": [
+      { "id": "const-null", "name": "NULL", "type": "int", "scope": "constants", "value": "0" }
+    ],
+    "locals": [
+      { "id": "local-t1-r0", "name": "r0", "type": "int", "scope": "locals", "value": "" },
+      { "id": "local-t1-r1", "name": "r1", "type": "int", "scope": "locals", "value": "" }
+    ],
+    "shared": [
+      { "id": "mem-data", "name": "Data", "type": "int", "value": "0" },
+      { "id": "mem-flag", "name": "Flag", "type": "int", "value": "0" }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "node-t0-op1", "type": "operation", "position": { "x": 80, "y": 60 },
+      "data": { "threadId": "T0", "sequenceIndex": 1, "operation": { "type": "STORE", "addressId": "mem-data", "value": "1", "memoryOrder": "Relaxed" } }
+    },
+    {
+      "id": "node-t0-op2", "type": "operation", "position": { "x": 250, "y": 60 },
+      "data": { "threadId": "T0", "sequenceIndex": 2, "operation": { "type": "STORE", "addressId": "mem-flag", "value": "1", "memoryOrder": "Release" } }
+    },
+    {
+      "id": "node-t1-op1", "type": "operation", "position": { "x": 80, "y": 180 },
+      "data": { "threadId": "T1", "sequenceIndex": 1, "operation": { "type": "LOAD", "addressId": "mem-flag", "resultId": "local-t1-r0", "memoryOrder": "Acquire" } }
+    },
+    {
+      "id": "node-t1-op2", "type": "operation", "position": { "x": 250, "y": 180 },
+      "data": { "threadId": "T1", "sequenceIndex": 2, "operation": { "type": "LOAD", "addressId": "mem-data", "resultId": "local-t1-r1", "memoryOrder": "Relaxed" } }
+    }
+  ],
+  "edges": [
+    { "source": "node-t0-op1", "target": "node-t0-op2", "id": "edge-po-0", "type": "relation", "data": { "relationType": "po", "invalid": false } },
+    { "source": "node-t1-op1", "target": "node-t1-op2", "id": "edge-po-1", "type": "relation", "data": { "relationType": "po", "invalid": false } },
+    { "source": "node-t0-op2", "target": "node-t1-op1", "id": "edge-rf", "type": "relation", "data": { "relationType": "rf", "invalid": false } },
+    { "source": "node-t1-op2", "target": "node-t0-op1", "id": "edge-fr", "type": "relation", "data": { "relationType": "fr", "invalid": false } }
+  ],
+  "threads": ["T0", "T1"],
+  "activeBranch": null
+}

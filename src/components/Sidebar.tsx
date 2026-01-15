@@ -19,6 +19,7 @@ import { parseSessionSnapshot } from "../session/parseSessionSnapshot";
 import { checkEdgeConstraints } from "../utils/edgeConstraints";
 import BranchConditionEditor from "./BranchConditionEditor";
 import { evaluateBranchCondition } from "../utils/branchEvaluation";
+import SessionTitleDialog from "./SessionTitleDialog";
 
 type ToolboxItem = {
   label: string;
@@ -89,6 +90,7 @@ const Sidebar = () => {
   );
   const sessionFileInputRef = useRef<HTMLInputElement | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
 
   const selectedNode = useMemo(
     () => nodes.find((node) => node.selected),
@@ -197,13 +199,15 @@ const Sidebar = () => {
     event.dataTransfer.effectAllowed = "copy";
   };
 
-  const handleExportSession = useCallback(() => {
-    const nextTitle = window.prompt("Session name", sessionTitle) ?? null;
-    if (nextTitle === null) {
-      return;
-    }
-    const normalizedTitle = nextTitle.trim();
-    setSessionTitle(normalizedTitle);
+  const exportSession = useCallback(
+    (title: string) => {
+      const normalizedTitle = title.trim();
+      setSessionTitle(normalizedTitle);
+
+      const safeFilename = normalizedTitle
+        .replace(/[\\/:*?"<>|]+/g, "-")
+        .replace(/\s+/g, " ")
+        .trim();
 
     const memory = {
       constants: memoryEnv.filter((item) => item.scope === "constants"),
@@ -225,14 +229,16 @@ const Sidebar = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    const safeFilename = normalizedTitle
-      .replace(/[\\/:*?"<>|]+/g, "-")
-      .replace(/\s+/g, " ")
-      .trim();
     link.download = safeFilename ? `${safeFilename}.json` : "litmus-session.json";
     link.click();
     URL.revokeObjectURL(url);
-  }, [activeBranch, edges, memoryEnv, nodes, sessionTitle, setSessionTitle, threads]);
+    },
+    [activeBranch, edges, memoryEnv, nodes, setSessionTitle, threads]
+  );
+
+  const handleExportSession = useCallback(() => {
+    setExportDialogOpen(true);
+  }, []);
 
   const handleImportSessionFile = useCallback(
     async (file: File) => {
@@ -415,6 +421,16 @@ const Sidebar = () => {
           ) : null}
         </div>
       </section>
+
+      <SessionTitleDialog
+        open={exportDialogOpen}
+        initialValue={sessionTitle}
+        onCancel={() => setExportDialogOpen(false)}
+        onConfirm={(title) => {
+          setExportDialogOpen(false);
+          exportSession(title);
+        }}
+      />
 
       <section className="space-y-3">
         <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">

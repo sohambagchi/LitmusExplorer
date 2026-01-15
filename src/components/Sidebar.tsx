@@ -81,6 +81,8 @@ const Sidebar = () => {
   const resetSession = useStore((state) => state.resetSession);
   const importSession = useStore((state) => state.importSession);
   const validateGraph = useStore((state) => state.validateGraph);
+  const sessionTitle = useStore((state) => state.sessionTitle);
+  const setSessionTitle = useStore((state) => state.setSessionTitle);
   const selectedMemoryIds = useStore((state) => state.selectedMemoryIds);
   const groupSelectedIntoStruct = useStore(
     (state) => state.groupSelectedIntoStruct
@@ -196,12 +198,20 @@ const Sidebar = () => {
   };
 
   const handleExportSession = useCallback(() => {
+    const nextTitle = window.prompt("Session name", sessionTitle) ?? null;
+    if (nextTitle === null) {
+      return;
+    }
+    const normalizedTitle = nextTitle.trim();
+    setSessionTitle(normalizedTitle);
+
     const memory = {
       constants: memoryEnv.filter((item) => item.scope === "constants"),
       locals: memoryEnv.filter((item) => item.scope === "locals"),
       shared: memoryEnv.filter((item) => item.scope === "shared"),
     };
     const snapshot = {
+      title: normalizedTitle || undefined,
       memory,
       nodes,
       edges,
@@ -215,10 +225,14 @@ const Sidebar = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "litmus-session.json";
+    const safeFilename = normalizedTitle
+      .replace(/[\\/:*?"<>|]+/g, "-")
+      .replace(/\s+/g, " ")
+      .trim();
+    link.download = safeFilename ? `${safeFilename}.json` : "litmus-session.json";
     link.click();
     URL.revokeObjectURL(url);
-  }, [activeBranch, edges, memoryEnv, nodes, threads]);
+  }, [activeBranch, edges, memoryEnv, nodes, sessionTitle, setSessionTitle, threads]);
 
   const handleImportSessionFile = useCallback(
     async (file: File) => {
@@ -227,7 +241,12 @@ const Sidebar = () => {
         const rawText = await file.text();
         const parsed = JSON.parse(rawText) as unknown;
         const snapshot = parseSessionSnapshot(parsed);
-        importSession(snapshot);
+        const fileTitle = file.name.replace(/\.json$/i, "").trim();
+        const snapshotWithTitle =
+          snapshot.title || !fileTitle || fileTitle === "litmus-session"
+            ? snapshot
+            : { ...snapshot, title: fileTitle };
+        importSession(snapshotWithTitle);
       } catch (error) {
         setImportError(
           error instanceof Error ? error.message : "Failed to import session."

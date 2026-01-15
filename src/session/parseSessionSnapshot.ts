@@ -318,6 +318,11 @@ export const parseSessionSnapshot = (value: unknown): SessionSnapshot => {
     throw new Error("Session JSON must be an object.");
   }
 
+  const title =
+    typeof value.title === "undefined"
+      ? undefined
+      : parseString(value.title, "title").trim() || undefined;
+
   const memory =
     typeof value.memory !== "undefined"
       ? parseMemorySnapshot(value.memory)
@@ -350,6 +355,7 @@ export const parseSessionSnapshot = (value: unknown): SessionSnapshot => {
     typeof value.exportedAt === "string" ? value.exportedAt : undefined;
 
   return {
+    title,
     memory,
     nodes,
     edges,

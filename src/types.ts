@@ -101,6 +101,7 @@ export type SessionMemorySnapshot = {
 };
 
 export type SessionSnapshot = {
+  title?: string;
   memory: SessionMemorySnapshot;
   nodes: TraceNode[];
   edges: RelationEdge[];

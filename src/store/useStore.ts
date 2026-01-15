@@ -18,12 +18,14 @@ type NodesUpdater = TraceNode[] | ((nodes: TraceNode[]) => TraceNode[]);
 type EdgesUpdater = RelationEdge[] | ((edges: RelationEdge[]) => RelationEdge[]);
 
 type StoreState = {
+  sessionTitle: string;
   nodes: TraceNode[];
   edges: RelationEdge[];
   memoryEnv: MemoryVariable[];
   selectedMemoryIds: string[];
   threads: string[];
   activeBranch: ActiveBranch | null;
+  setSessionTitle: (title: string) => void;
   setNodes: (updater: NodesUpdater) => void;
   setEdges: (updater: EdgesUpdater) => void;
   onNodesChange: (changes: NodeChange[]) => void;
@@ -92,12 +94,14 @@ const getNextThreadId = (threads: string[]) => {
 };
 
 export const useStore = create<StoreState>()((set, get) => ({
+  sessionTitle: "",
   nodes: [],
   edges: [],
   memoryEnv: createDefaultMemoryEnv(),
   selectedMemoryIds: [],
   threads: ["T0"],
   activeBranch: null,
+  setSessionTitle: (title) => set({ sessionTitle: title }),
   setNodes: (updater) =>
     set((state) => ({ nodes: applyUpdater(state.nodes, updater) })),
   setEdges: (updater) =>
@@ -268,6 +272,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   },
   resetSession: () =>
     set({
+      sessionTitle: "",
       nodes: [],
       edges: [],
       memoryEnv: createDefaultMemoryEnv(),
@@ -277,6 +282,7 @@ export const useStore = create<StoreState>()((set, get) => ({
     }),
   importSession: (snapshot) => {
     set({
+      sessionTitle: snapshot.title ?? "",
       nodes: snapshot.nodes.map((node) => ({ ...node, selected: false })),
       edges: snapshot.edges.map((edge) => ({ ...edge, selected: false })),
       memoryEnv: flattenMemorySnapshot(snapshot),

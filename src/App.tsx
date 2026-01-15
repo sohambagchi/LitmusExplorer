@@ -140,6 +140,7 @@ const App = () => {
   const setEdges = useStore((state) => state.setEdges);
   const setThreads = useStore((state) => state.setThreads);
   const validateGraph = useStore((state) => state.validateGraph);
+  const sessionTitle = useStore((state) => state.sessionTitle);
   const seeded = useRef(false);
 
   useEffect(() => {
@@ -167,13 +168,19 @@ const App = () => {
               Drag operations, connect relations, and collapse branches.
             </div>
           </div>
-          <button
-            type="button"
-            className="rounded bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
-            onClick={validateGraph}
-          >
-            Validate Graph
-          </button>
+          <div className="flex items-center gap-4">
+            <div className="max-w-[28rem] truncate text-xs font-medium text-slate-700">
+              <span className="text-slate-500">Session:</span>{" "}
+              {sessionTitle ? sessionTitle : "Untitled"}
+            </div>
+            <button
+              type="button"
+              className="rounded bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+              onClick={validateGraph}
+            >
+              Validate Graph
+            </button>
+          </div>
         </header>
         <main className="flex-1">
           <EditorCanvas />

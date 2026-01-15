@@ -14,6 +14,7 @@ import ReactFlow, {
   Background,
   BackgroundVariant,
   ConnectionLineType,
+  MarkerType,
   type NodeChange,
   type Connection,
   type ReactFlowInstance,
@@ -44,6 +45,43 @@ const MIN_SEQUENCE_INDEX = 1;
 const MAX_CANVAS_X = 200_000;
 const PAN_SPEED = 1;
 const CANVAS_NODE_ORIGIN: [number, number] = [0, 0.5];
+
+const DEFAULT_EDGE_ARROW_COLOR = "#0f172a";
+
+const coreRelationColors: Record<string, string> = {
+  rf: "#0f172a",
+  co: "#0284c7",
+  fr: "#f97316",
+  po: "#94a3b8",
+  ad: "#facc15",
+  dd: "#38bdf8",
+  cd: "#fb923c",
+};
+
+/**
+ * Deterministically hash a string into an unsigned 32-bit integer.
+ * Used to assign stable fallback colors to custom relation types.
+ */
+const hashString = (value: string) => {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+};
+
+/**
+ * Resolve a relation type to its display color.
+ * Falls back to a stable HSL color when the type isn't one of the built-ins.
+ */
+const getRelationColor = (relationType: string) => {
+  const core = coreRelationColors[relationType];
+  if (core) {
+    return core;
+  }
+  const hue = hashString(relationType) % 360;
+  return `hsl(${hue} 65% 42%)`;
+};
 
 const sanitizeFilename = (raw: string) =>
   raw
@@ -539,6 +577,37 @@ const EditorCanvas = () => {
       ),
     [edgesWithDerived, visibleNodeIds]
   );
+
+  const edgesToRenderWithArrows = useMemo(() => {
+    // Ensure every edge gets a visible arrowhead pointing at the dst/target handle.
+    // We keep this as a render-time default so sessions don’t need to persist marker settings.
+    return edgesToRender.map((edge) => {
+      if (edge.markerEnd) {
+        return edge;
+      }
+
+      const relationType = edge.data?.relationType ?? "po";
+      const invalid = edge.data?.invalid ?? false;
+      const styleStroke = edge.style?.stroke;
+      const color =
+        invalid
+          ? "#ef4444"
+          : typeof styleStroke === "string"
+            ? styleStroke
+            : getRelationColor(relationType) || DEFAULT_EDGE_ARROW_COLOR;
+
+      return {
+        ...edge,
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color,
+          width: 12,
+          height: 12,
+          markerUnits: "userSpaceOnUse",
+        },
+      };
+    });
+  }, [edgesToRender]);
 
   const threadsForLayout = useMemo(
     () => getThreadsForLayout(threads, nodes),
@@ -1162,7 +1231,7 @@ const EditorCanvas = () => {
             />
             <ReactFlow
               nodes={visibleNodes}
-              edges={edgesToRender}
+              edges={edgesToRenderWithArrows}
               nodeTypes={nodeTypes}
               edgeTypes={edgeTypes}
               nodeOrigin={CANVAS_NODE_ORIGIN}

@@ -1,4 +1,10 @@
-import { BaseEdge, EdgeLabelRenderer, type EdgeProps, useReactFlow } from "reactflow";
+import {
+  BaseEdge,
+  EdgeLabelRenderer,
+  Position,
+  type EdgeProps,
+  useReactFlow,
+} from "reactflow";
 import type { Node } from "reactflow";
 import { useStore } from "../store/useStore";
 import type { RelationEdgeData, RelationType, TraceNodeData } from "../types";
@@ -10,6 +16,7 @@ const LANE_HEIGHT = 120;
 const STRAIGHT_EPSILON_PX = 6;
 const BUFFER_Y_OFFSET_STEP_PX = 6;
 const BUFFER_Y_OFFSET_SLOTS = [0, 1, -1, 2, -2, 3, -3];
+const ARROW_APPROACH_PX = 14;
 const FALLBACK_NODE_HEIGHT: Record<string, number> = {
   branch: 56,
   operation: 44,
@@ -63,6 +70,85 @@ const pointsToPath = (points: Point[]) => {
     path += ` L ${point.x} ${point.y}`;
   }
   return path;
+};
+
+/**
+ * Ensure the edge path ends with a segment that points into the target handle.
+ * React Flow orients arrow markers using the path tangent at the endpoint. Our
+ * orthogonal routing often ends with a vertical segment at `targetX,targetY`,
+ * which yields up/down arrowheads even when the handle is on the left/right.
+ */
+const adjustPointsForArrowhead = ({
+  points,
+  targetX,
+  targetY,
+  targetPosition,
+}: {
+  points: Point[];
+  targetX: number;
+  targetY: number;
+  targetPosition: Position;
+}) => {
+  if (points.length < 2) {
+    return points;
+  }
+
+  const desiredAxis =
+    targetPosition === Position.Left || targetPosition === Position.Right
+      ? "horizontal"
+      : "vertical";
+  const approach =
+    desiredAxis === "horizontal"
+      ? targetPosition === Position.Right
+        ? { x: targetX + ARROW_APPROACH_PX, y: targetY }
+        : { x: targetX - ARROW_APPROACH_PX, y: targetY }
+      : targetPosition === Position.Bottom
+        ? { x: targetX, y: targetY + ARROW_APPROACH_PX }
+        : { x: targetX, y: targetY - ARROW_APPROACH_PX };
+
+  const normalized = [...points];
+  normalized[normalized.length - 1] = { x: targetX, y: targetY };
+
+  const prev = normalized[normalized.length - 2];
+  const last = normalized[normalized.length - 1];
+  if (!prev || !last) {
+    return normalized;
+  }
+
+  if (desiredAxis === "horizontal") {
+    // If the last segment is vertical, shift the vertical drop slightly left/right
+    // and finish with a short horizontal segment into the target handle.
+    if (prev.x === targetX) {
+      normalized[normalized.length - 2] = { x: approach.x, y: prev.y };
+      if (prev.y !== targetY) {
+        normalized.splice(normalized.length - 1, 0, {
+          x: approach.x,
+          y: targetY,
+        });
+      }
+      return simplifyPoints(normalized);
+    }
+
+    // If the last segment isn't horizontal, insert a corner to make it so.
+    if (prev.y !== targetY) {
+      normalized.splice(normalized.length - 1, 0, { x: prev.x, y: targetY });
+    }
+    return simplifyPoints(normalized);
+  }
+
+  // Vertical target handle: ensure the last segment is vertical into the endpoint.
+  if (prev.y === targetY) {
+    normalized[normalized.length - 2] = { x: prev.x, y: approach.y };
+    if (prev.x !== targetX) {
+      normalized.splice(normalized.length - 1, 0, { x: targetX, y: approach.y });
+    }
+    return simplifyPoints(normalized);
+  }
+
+  if (prev.x !== targetX) {
+    normalized.splice(normalized.length - 1, 0, { x: targetX, y: prev.y });
+  }
+  return simplifyPoints(normalized);
 };
 
 const buildOrthogonalPoints = ({
@@ -370,6 +456,7 @@ const RelationEdge = ({
   source,
   target,
   sourceHandleId,
+  targetPosition,
   selected,
   markerEnd,
   data,
@@ -397,16 +484,22 @@ const RelationEdge = ({
     sourceHandleId,
     edgeYOffsetPx,
   });
+  const pointsWithArrow = adjustPointsForArrowhead({
+    points,
+    targetX,
+    targetY,
+    targetPosition,
+  });
   const edgePath = invalid
-    ? buildJaggedOrthogonalPath(points)
-    : pointsToPath(points);
+    ? buildJaggedOrthogonalPath(pointsWithArrow)
+    : pointsToPath(pointsWithArrow);
 
   const stroke = (style?.stroke as string) ?? getRelationColor(relationType);
   const isSelected = selected ?? false;
   const bandStrokeWidth =
     relationType === "ad" ? 14 : relationType === "cd" ? 12 : 12;
   const bandOpacity = relationType === "ad" ? 0.25 : 0.22;
-  const labelAnchor = getHorizontalLabelAnchor(points);
+  const labelAnchor = getHorizontalLabelAnchor(pointsWithArrow);
   const isLabelEligible = !isGenerated && !isDependencyBand && !!labelAnchor;
   const shouldShowByMode =
     edgeLabelMode === "all"

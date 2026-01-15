@@ -312,6 +312,7 @@ const buildOrthogonalPoints = ({
   sourceHandleId,
   edgeYOffsetPx,
   edgeCrossOffsetPx,
+  hasIntermediateSameThreadNodes,
   rowMaxNodeBottomX,
   rowMaxSourceNodeBottomX,
   edgeExitOffsetPx,
@@ -325,6 +326,7 @@ const buildOrthogonalPoints = ({
   sourceHandleId?: string | null;
   edgeYOffsetPx?: number;
   edgeCrossOffsetPx?: number;
+  hasIntermediateSameThreadNodes?: boolean;
   rowMaxNodeBottomX?: number;
   rowMaxSourceNodeBottomX?: number;
   edgeExitOffsetPx?: number;
@@ -343,17 +345,10 @@ const buildOrthogonalPoints = ({
    * through intermediate nodes in the lane.
    *
    * To keep edges from intersecting nodes, only allow the straight-line shortcut
-   * when the endpoints are adjacent rows (no intermediate nodes can be in the way).
+   * when there are no intermediate nodes in the same thread between endpoints.
    */
   if (Math.abs(sourceY - targetY) <= STRAIGHT_EPSILON_PX) {
-    const sourceSeq = sourceNode?.data?.sequenceIndex;
-    const targetSeq = targetNode?.data?.sequenceIndex;
-    const isAdjacentRow =
-      typeof sourceSeq === "number" &&
-      typeof targetSeq === "number" &&
-      Math.abs(sourceSeq - targetSeq) <= 1;
-
-    if (!sameThread || isAdjacentRow) {
+    if (!sameThread || !hasIntermediateSameThreadNodes) {
       return simplifyPoints([
         { x: sourceX, y: sourceY },
         { x: targetX, y: targetY },
@@ -856,6 +851,47 @@ const RelationEdge = ({
     return getRowMaxNodeBottomX(sourceSeq);
   })();
 
+  const hasIntermediateSameThreadNodes = (() => {
+    const sourceThreadId = sourceNode?.data?.threadId;
+    const targetThreadId = targetNode?.data?.threadId;
+    if (!sourceThreadId || sourceThreadId !== targetThreadId) {
+      return false;
+    }
+
+    const sourceSeq = sourceNode?.data?.sequenceIndex;
+    const targetSeq = targetNode?.data?.sequenceIndex;
+    if (typeof sourceSeq !== "number" || typeof targetSeq !== "number") {
+      // Conservative fallback: when we can't reason about row ordering, avoid
+      // a potentially node-intersecting straight-line segment.
+      return true;
+    }
+
+    const minSeq = Math.min(sourceSeq, targetSeq);
+    const maxSeq = Math.max(sourceSeq, targetSeq);
+    if (maxSeq - minSeq <= 1) {
+      return false;
+    }
+
+    for (const node of nodes) {
+      if (node.id === source || node.id === target) {
+        continue;
+      }
+      const nodeData = node.data as TraceNodeData | undefined;
+      if (!nodeData || nodeData.threadId !== sourceThreadId) {
+        continue;
+      }
+      const seq = nodeData.sequenceIndex;
+      if (typeof seq !== "number") {
+        continue;
+      }
+      if (seq > minSeq && seq < maxSeq) {
+        return true;
+      }
+    }
+
+    return false;
+  })();
+
   // Transpose edge coordinates to the logical routing space (time=X, lane=Y).
   const logicalSourceX = sourceY;
   const logicalSourceY = sourceX;
@@ -872,6 +908,7 @@ const RelationEdge = ({
     sourceHandleId,
     edgeYOffsetPx: edgeOffsetPx,
     edgeCrossOffsetPx,
+    hasIntermediateSameThreadNodes,
     rowMaxNodeBottomX,
     rowMaxSourceNodeBottomX,
     edgeExitOffsetPx,

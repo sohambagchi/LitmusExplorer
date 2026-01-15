@@ -37,7 +37,7 @@ import { createBranchGroupCondition } from "../utils/branchConditionFactory";
 import { evaluateBranchCondition } from "../utils/branchEvaluation";
 import ConfirmDialog from "./ConfirmDialog";
 import { exportReactFlowViewportToPng } from "../utils/exportReactFlowPng";
-import { Copy, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Copy, Trash2 } from "lucide-react";
 import { createUuid } from "../utils/createUuid";
 import { resolvePointerTargetById } from "../utils/resolvePointers";
 
@@ -405,6 +405,16 @@ const EditorCanvas = () => {
     label: string;
     usageCount: number;
   } | null>(null);
+  const [isMemoryCollapsed, setIsMemoryCollapsed] = useState(false);
+
+  /**
+   * Toggle the memory strip between expanded and collapsed states.
+   *
+   * @returns Void.
+   */
+  const toggleMemoryCollapsed = useCallback(() => {
+    setIsMemoryCollapsed((current) => !current);
+  }, []);
 
   const nodeTypes = useMemo(
     () => ({ operation: OperationNode, branch: BranchNode }),
@@ -1506,70 +1516,97 @@ const EditorCanvas = () => {
 
   return (
     <div className="flex h-full w-full flex-col">
-      <div className="border-b border-slate-200 bg-white px-4 py-3">
-        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Memory
+      <div
+        className={`border-b border-slate-200 bg-white px-4 ${
+          isMemoryCollapsed ? "py-2" : "py-3"
+        }`}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Memory
+          </div>
+          <button
+            type="button"
+            className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-1"
+            aria-label={
+              isMemoryCollapsed ? "Expand memory section" : "Collapse memory section"
+            }
+            aria-expanded={!isMemoryCollapsed}
+            aria-controls="memory-section-body"
+            onClick={toggleMemoryCollapsed}
+          >
+            {isMemoryCollapsed ? (
+              <ChevronDown className="h-4 w-4" aria-hidden="true" />
+            ) : (
+              <ChevronUp className="h-4 w-4" aria-hidden="true" />
+            )}
+          </button>
         </div>
-	        <div className="mt-3 grid grid-cols-3 gap-3">
-	          {MEMORY_SECTIONS.map((section) => {
-	            const sectionItems = memoryEnv.filter(
-	              (item) => item.scope === section.scope && !item.parentId
-	            );
-	            const isLocalRegisters = section.scope === "locals";
+        {isMemoryCollapsed ? null : (
+          <div
+            id="memory-section-body"
+            className="mt-3 grid grid-cols-3 gap-3"
+          >
+            {MEMORY_SECTIONS.map((section) => {
+              const sectionItems = memoryEnv.filter(
+                (item) => item.scope === section.scope && !item.parentId
+              );
+              const isLocalRegisters = section.scope === "locals";
 
-	            return (
-	              <div
-	                key={section.scope}
-	                className="rounded border border-slate-200 bg-slate-50 p-2"
-	                onDrop={
-	                  isLocalRegisters
-	                    ? undefined
-	                    : (event) => handleMemoryDrop(event, section.scope)
-	                }
-	                onDragOver={isLocalRegisters ? undefined : handleMemoryDragOver}
-	              >
-	                <div className="mb-2 flex items-center justify-between text-[11px] font-semibold uppercase text-slate-500">
-                  <span>{section.label}</span>
-                  {isLocalRegisters ? (
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        className="rounded border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                        onClick={addLocalRegister}
-                        aria-label="Add int register"
-                      >
-                        +int
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                        onClick={addLocalPointer}
-                        aria-label="Add pointer register"
-                      >
-                        +ptr
-                      </button>
-                    </div>
-                  ) : null}
+              return (
+                <div
+                  key={section.scope}
+                  className="rounded border border-slate-200 bg-slate-50 p-2"
+                  onDrop={
+                    isLocalRegisters
+                      ? undefined
+                      : (event) => handleMemoryDrop(event, section.scope)
+                  }
+                  onDragOver={isLocalRegisters ? undefined : handleMemoryDragOver}
+                >
+                  <div className="mb-2 flex items-center justify-between text-[11px] font-semibold uppercase text-slate-500">
+                    <span>{section.label}</span>
+                    {isLocalRegisters ? (
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          className="rounded border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                          onClick={addLocalRegister}
+                          aria-label="Add int register"
+                        >
+                          +int
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                          onClick={addLocalPointer}
+                          aria-label="Add pointer register"
+                        >
+                          +ptr
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="space-y-2">
+                    {sectionItems.length > 0 ? (
+                      sectionItems.map((item) =>
+                        item.type === "struct"
+                          ? renderMemoryStruct(item)
+                          : renderMemoryAtom(item, false)
+                      )
+                    ) : (
+                      <div className="rounded border border-dashed border-slate-300 px-2 py-3 text-center text-xs text-slate-400">
+                        {isLocalRegisters
+                          ? "Use + to add registers"
+                          : "Drop int, array, or ptr here"}
+                      </div>
+                    )}
+                  </div>
                 </div>
-	                <div className="space-y-2">
-	                  {sectionItems.length > 0 ? (
-	                    sectionItems.map((item) =>
-	                      item.type === "struct"
-	                        ? renderMemoryStruct(item)
-	                        : renderMemoryAtom(item, false)
-	                    )
-	                  ) : (
-                    <div className="rounded border border-dashed border-slate-300 px-2 py-3 text-center text-xs text-slate-400">
-                      {isLocalRegisters
-                        ? "Use + to add registers"
-                        : "Drop int, array, or ptr here"}
-                    </div>
-                  )}
-                </div>
-	              </div>
-	            );
-	          })}
-	        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
       <div className="flex min-h-0 flex-1 flex-col bg-slate-100">
         <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">

@@ -43,6 +43,11 @@ type ToolboxItem = {
   label: string;
   type: OperationType;
   nodeType: "operation" | "branch";
+  /**
+   * Optional Tailwind class overrides for the draggable toolbox card.
+   * Useful for making "meta" nodes visually distinct before dropping them.
+   */
+  className?: string;
 };
 
 const TOOLBOX_ITEMS: ToolboxItem[] = [
@@ -51,6 +56,24 @@ const TOOLBOX_ITEMS: ToolboxItem[] = [
   { label: "Fence", type: "FENCE", nodeType: "operation" },
   { label: "CAS", type: "RMW", nodeType: "operation" },
   { label: "Branch", type: "BRANCH", nodeType: "branch" },
+  {
+    label: "Retry",
+    type: "RETRY",
+    nodeType: "operation",
+    className: "border-cyan-300 bg-gradient-to-br from-cyan-50 to-sky-100",
+  },
+  {
+    label: "Return False",
+    type: "RETURN_FALSE",
+    nodeType: "operation",
+    className: "border-pink-300 bg-gradient-to-br from-pink-50 to-fuchsia-100",
+  },
+  {
+    label: "Return True",
+    type: "RETURN_TRUE",
+    nodeType: "operation",
+    className: "border-lime-300 bg-gradient-to-br from-lime-50 to-emerald-100",
+  },
 ];
 
 const MEMORY_ITEMS: { label: string; type: MemoryType }[] = [
@@ -1037,7 +1060,9 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
           {TOOLBOX_ITEMS.map((item) => (
             <div
               key={item.type}
-              className="cursor-grab rounded border border-slate-200 bg-slate-50 px-2 py-2 text-center text-xs font-semibold text-slate-700"
+              className={`cursor-grab rounded border border-slate-200 bg-slate-50 px-2 py-2 text-center text-xs font-semibold text-slate-700 ${
+                item.className ?? ""
+              }`}
               draggable
               onDragStart={(event) => onDragStart(event, item)}
             >

@@ -10,7 +10,16 @@ import type {
   TraceNode,
 } from "../types";
 
-const allowedOperationTypes = new Set(["LOAD", "STORE", "RMW", "FENCE", "BRANCH"]);
+const allowedOperationTypes = new Set([
+  "LOAD",
+  "STORE",
+  "RMW",
+  "FENCE",
+  "BRANCH",
+  "RETRY",
+  "RETURN_FALSE",
+  "RETURN_TRUE",
+]);
 const allowedMemoryTypes = new Set(["int", "array", "ptr", "struct"]);
 const allowedMemoryScopes = new Set(["constants", "locals", "shared"]);
 

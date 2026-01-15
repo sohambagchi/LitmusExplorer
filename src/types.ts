@@ -46,7 +46,22 @@ export type MemoryVariable =
   | PtrMemoryVariable
   | StructMemoryVariable;
 
-export type OperationType = "LOAD" | "STORE" | "RMW" | "FENCE" | "BRANCH";
+/**
+ * Canonical operation types supported by the editor.
+ *
+ * Notes:
+ * - "Meta" operations (Retry/Return True/Return False) are editor-only control
+ *   flow helpers; they intentionally do not participate in memory-location logic.
+ */
+export type OperationType =
+  | "LOAD"
+  | "STORE"
+  | "RMW"
+  | "FENCE"
+  | "BRANCH"
+  | "RETRY"
+  | "RETURN_FALSE"
+  | "RETURN_TRUE";
 
 export const DEFAULT_MEMORY_ORDERS = [
   "Standard",

@@ -8,6 +8,11 @@ import type {
   TraceNodeData,
 } from "../types";
 
+type MetaOperationStyle = {
+  backgroundClass: string;
+  borderClass: string;
+};
+
 const getOrderColorClass = (order: string | undefined) => {
   switch (order) {
     case "Acquire":
@@ -24,6 +29,36 @@ const getOrderColorClass = (order: string | undefined) => {
       return "bg-slate-200";
     default:
       return "bg-slate-200";
+  }
+};
+
+/**
+ * Returns the special styling used by editor-only meta nodes.
+ *
+ * @param operationType - Canonical operation type for the node.
+ * @returns Tailwind class names for meta nodes, or `null` when not a meta node.
+ */
+const getMetaOperationStyle = (
+  operationType: OperationType
+): MetaOperationStyle | null => {
+  switch (operationType) {
+    case "RETRY":
+      return {
+        backgroundClass: "bg-gradient-to-br from-cyan-200 to-sky-200",
+        borderClass: "border-cyan-400",
+      };
+    case "RETURN_FALSE":
+      return {
+        backgroundClass: "bg-gradient-to-br from-pink-200 to-fuchsia-200",
+        borderClass: "border-pink-400",
+      };
+    case "RETURN_TRUE":
+      return {
+        backgroundClass: "bg-gradient-to-br from-lime-200 to-emerald-200",
+        borderClass: "border-lime-400",
+      };
+    default:
+      return null;
   }
 };
 
@@ -56,6 +91,9 @@ const opLabels: Record<OperationType, string> = {
   RMW: "RMW",
   FENCE: "FENCE",
   BRANCH: "BR",
+  RETRY: "Retry",
+  RETURN_FALSE: "Return False",
+  RETURN_TRUE: "Return True",
 };
 
 /**
@@ -138,6 +176,15 @@ const OperationNode = ({ data, selected }: NodeProps<TraceNodeData>) => {
   );
   const label = useMemo(() => {
     const op = data.operation;
+
+    /**
+     * Meta operations are editor-only control flow helpers that should render as
+     * plain labels (not parameterized memory operations).
+     */
+    if (op.type === "RETRY" || op.type === "RETURN_FALSE" || op.type === "RETURN_TRUE") {
+      return opLabels[op.type];
+    }
+
     const opLabel = opLabels[op.type];
     const baseAddressVar = op.addressId ? memoryById.get(op.addressId) : undefined;
     const resolvedAddressVar = op.addressId
@@ -232,12 +279,16 @@ const OperationNode = ({ data, selected }: NodeProps<TraceNodeData>) => {
           )} 50%, ${getOrderColorHex(data.operation.failureMemoryOrder)} 100%)`,
         }
       : undefined;
-  const colorClass = getOrderColorClass(data.operation.memoryOrder);
+  const metaStyle = getMetaOperationStyle(data.operation.type);
+  const colorClass = metaStyle
+    ? metaStyle.backgroundClass
+    : getOrderColorClass(data.operation.memoryOrder);
+  const borderClass = metaStyle ? metaStyle.borderClass : "border-slate-400";
 
   return (
     <div
       style={casBackgroundStyle}
-      className={`min-w-[110px] rounded-md border border-slate-400 px-2 py-1.5 text-[11px] text-slate-900 shadow-sm ${colorClass} ${
+      className={`min-w-[110px] rounded-md border px-2 py-1.5 text-[11px] text-slate-900 shadow-sm ${borderClass} ${colorClass} ${
         selected ? "ring-2 ring-slate-600" : ""
       }`}
     >

@@ -23,6 +23,7 @@ import BranchConditionEditor from "./BranchConditionEditor";
 import { evaluateBranchCondition } from "../utils/branchEvaluation";
 import SessionTitleDialog from "./SessionTitleDialog";
 import RelationDefinitionsDialog from "./RelationDefinitionsDialog";
+import TutorialDialog from "./TutorialDialog";
 import { Trash2 } from "lucide-react";
 
 type ToolboxItem = {
@@ -142,6 +143,7 @@ const Sidebar = () => {
   const [importError, setImportError] = useState<string | null>(null);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [relationDialogOpen, setRelationDialogOpen] = useState(false);
+  const [tutorialDialogOpen, setTutorialDialogOpen] = useState(false);
 
   const selectedNode = useMemo(
     () => nodes.find((node) => node.selected),
@@ -576,6 +578,15 @@ const Sidebar = () => {
         <div className="absolute inset-y-0 right-0 w-px bg-slate-200" />
         <div className="absolute right-0 top-1/2 h-10 w-1 -translate-y-1/2 rounded bg-slate-200 opacity-0 transition-opacity hover:opacity-100" />
       </div>
+
+      <button
+        type="button"
+        className="w-full rounded bg-slate-900 px-3 py-2 text-xs font-semibold text-white"
+        onClick={() => setTutorialDialogOpen(true)}
+      >
+        Help
+      </button>
+
       <section className="space-y-3">
         <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
           Session
@@ -725,6 +736,11 @@ const Sidebar = () => {
         open={relationDialogOpen}
         definitions={catModel.definitions}
         onClose={() => setRelationDialogOpen(false)}
+      />
+
+      <TutorialDialog
+        open={tutorialDialogOpen}
+        onClose={() => setTutorialDialogOpen(false)}
       />
 
       <section className="space-y-3">

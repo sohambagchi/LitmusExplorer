@@ -1,14 +1,17 @@
 # Litmus Explorer
 
 Litmus Explorer is a React + React Flow prototype for visualizing litmus tests.
-It lets you lay out operations across thread lanes, connect relations, and
-validate simple read-from constraints.
+It lets you lay out operations across thread lanes, connect relation edges, and
+validate basic consistency/typing constraints on those edges.
 
 ## Features
 - Drag operations from the toolbox onto thread lanes.
-- Connect nodes to define relation edges.
-- Collapse or expand branch paths.
-- Validate read-from edges against sequence order.
+- Connect nodes to create `po` (program-order) edges, then select an edge to set its `relationType` (e.g. `rf`, `co`, `fr`, custom).
+- Branch nodes expose `then`/`else` handles and can hide the non-taken future (or show both).
+- Validate edges (same-thread requirements, same-location requirements for `rf`/`co`/`fr`, and simple `rf` ordering).
+- Import/export session snapshots (JSON), export canvas as PNG.
+- Optional: share sessions via Supabase (`docs/sharing.md`).
+- Optional: upload `.cat` files to extract relation names/definitions for the edge type dropdown.
 
 ## Getting Started
 ```sh
@@ -24,11 +27,11 @@ Open the dev server URL printed by Vite.
 - `npm run preview` preview the production build.
 
 ## Usage Notes
-- Drag nodes horizontally to change sequence order; vertical movement snaps to a
-  thread lane.
-- Use the Properties panel to edit address/value/memory-order metadata.
-- Click "Validate Graph" to flag invalid read-from edges.
-- Click "Share" to generate a UUID link (requires Supabase config; see `docs/sharing.md`).
+- Drag nodes horizontally to change `sequenceIndex`; vertical movement snaps to a lane. Drag into the dashed “next thread” lane (or click `+ Thread`) to add a thread.
+- Use the Properties panel to edit node fields, and to change the `relationType` of a selected edge.
+- `ad`/`cd`/`dd` dependency edges are derived automatically from node data and render as non-interactive bands.
+- Use `Labels` to toggle edge label rendering; `Export PNG` exports the current graph viewport.
+- `Share` generates a UUID link (requires Supabase config; see `docs/sharing.md`).
 
 ## Tech Stack
 - React 18, React DOM 18
@@ -40,10 +43,13 @@ Open the dev server URL printed by Vite.
 ## Project Structure
 - `index.html` app shell and Vite entry.
 - `src/main.tsx` React entry point.
-- `src/App.tsx` top-level layout + seeded demo graph.
-- `src/components/` UI building blocks, nodes, edges.
-- `src/store/useStore.ts` Zustand state and graph validation.
+- `src/App.tsx` top-level layout, seeded demo graph, and Share/Validate controls.
+- `src/components/` UI building blocks, React Flow nodes/edges, canvas, sidebar.
+- `src/store/useStore.ts` Zustand state and edge validation.
+- `src/session/` session snapshot creation/parsing.
+- `src/share/` Supabase sharing client.
+- `src/cat/` `.cat` file parser for relation definitions.
 - `src/types.ts` shared domain types.
 
 ## Testing
-No test runner is configured yet.
+No test runner is configured yet. `tests/session-samples/` contains example session JSON files for manual import.

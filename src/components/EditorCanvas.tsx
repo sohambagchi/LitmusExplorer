@@ -37,9 +37,10 @@ import { createBranchGroupCondition } from "../utils/branchConditionFactory";
 import { evaluateBranchCondition } from "../utils/branchEvaluation";
 import ConfirmDialog from "./ConfirmDialog";
 import { exportReactFlowViewportToPng } from "../utils/exportReactFlowPng";
-import { ChevronDown, ChevronUp, Copy, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Copy, Info, Trash2 } from "lucide-react";
 import { createUuid } from "../utils/createUuid";
 import { resolvePointerTargetById } from "../utils/resolvePointers";
+import VisualKeyDialog from "./VisualKeyDialog";
 
 const LANE_WIDTH = 260;
 const LANE_LABEL_HEIGHT = 80;
@@ -396,6 +397,7 @@ const EditorCanvas = () => {
   const reactFlowWrapperRef = useRef<HTMLDivElement | null>(null);
   const [isLocked, setIsLocked] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [isVisualKeyOpen, setIsVisualKeyOpen] = useState(false);
   const [pendingThreadDelete, setPendingThreadDelete] = useState<{
     threadId: string;
     nodeCount: number;
@@ -934,6 +936,16 @@ const EditorCanvas = () => {
 
   const handleFitView = useCallback(() => {
     reactFlowInstance.current?.fitView();
+  }, []);
+
+  // Keep stable callbacks so the visual key dialog doesn’t re-bind listeners
+  // while open (e.g. Escape-to-close).
+  const handleOpenVisualKey = useCallback(() => {
+    setIsVisualKeyOpen(true);
+  }, []);
+
+  const handleCloseVisualKey = useCallback(() => {
+    setIsVisualKeyOpen(false);
   }, []);
 
   const handleExportPng = useCallback(async () => {
@@ -1807,19 +1819,32 @@ const EditorCanvas = () => {
               {isExporting ? "Exporting..." : "Export PNG"}
             </button>
           </div>
-          <button
-            type="button"
-            className={`rounded px-2 py-1 text-xs font-semibold ${
-              isLocked
-                ? "bg-slate-900 text-white"
-                : "border border-slate-200 bg-white text-slate-700"
-            }`}
-            onClick={() => setIsLocked((current) => !current)}
-          >
-            {isLocked ? "Locked" : "Unlocked"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-1"
+              onClick={handleOpenVisualKey}
+              aria-label="Open visual key"
+              aria-haspopup="dialog"
+              aria-expanded={isVisualKeyOpen}
+            >
+              <Info className="h-4 w-4" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className={`rounded px-2 py-1 text-xs font-semibold ${
+                isLocked
+                  ? "bg-slate-900 text-white"
+                  : "border border-slate-200 bg-white text-slate-700"
+              }`}
+              onClick={() => setIsLocked((current) => !current)}
+            >
+              {isLocked ? "Locked" : "Unlocked"}
+            </button>
+          </div>
         </div>
       </div>
+      <VisualKeyDialog open={isVisualKeyOpen} onClose={handleCloseVisualKey} />
     </div>
   );
 };

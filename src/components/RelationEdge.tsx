@@ -11,12 +11,28 @@ import type { RelationEdgeData, RelationType, TraceNodeData } from "../types";
 
 // Render a jagged path to emphasize invalid relations.
 type Point = { x: number; y: number };
+type LogicalNode = Node<TraceNodeData> & {
+  __render?: { top: number; bottom: number };
+};
 
 // NOTE: The canvas renders with time going down and threads left→right, but this
 // edge router was originally written for a left→right time axis. We keep the
 // routing logic stable by computing paths in a "logical" coordinate space where
 // time is X and threads are Y, then transpose the result back to render space.
 const LANE_HEIGHT = 260;
+// Keep in sync with `GRID_Y` in `src/components/EditorCanvas.tsx`.
+// This is the vertical spacing between operation rows in render space (time axis).
+const SEQUENCE_STEP_PX = 80;
+// Route inter-thread horizontal traversals through the empty space below nodes.
+// This margin keeps the traversal away from the next row's node handles.
+const ROW_TRAVERSAL_MARGIN_PX = 8;
+// Height of the "row gap" band reserved for inter-thread horizontal traversals.
+// Inter-thread edges with the same source/target rows will choose a deterministic
+// X (time) offset within this band to reduce overlap.
+const ROW_TRAVERSAL_BAND_PX = 14;
+const CROSS_X_OFFSET_STEP_PX = 3;
+const EXIT_FROM_SOURCE_PX = 5;
+const EXIT_X_OFFSET_STEP_PX = 2;
 const STRAIGHT_EPSILON_PX = 6;
 const BUFFER_OFFSET_STEP_PX = 6;
 const BUFFER_OFFSET_SLOTS = [0, 1, -1, 2, -2, 3, -3];
@@ -26,6 +42,10 @@ const ARROW_APPROACH_PX = 8;
 const FALLBACK_NODE_SIZE_PX: Record<string, number> = {
   branch: 56,
   operation: 110,
+};
+const FALLBACK_RENDER_NODE_HEIGHT_PX: Record<string, number> = {
+  branch: 56,
+  operation: 56,
 };
 
 const transposePoint = (point: Point): Point => ({ x: point.y, y: point.x });
@@ -45,7 +65,9 @@ const transposePosition = (position: Position) => {
   }
 };
 
-const toLogicalNode = (node: Node<TraceNodeData> | undefined) => {
+const toLogicalNode = (
+  node: Node<TraceNodeData> | undefined
+): LogicalNode | undefined => {
   if (!node) {
     return undefined;
   }
@@ -54,6 +76,11 @@ const toLogicalNode = (node: Node<TraceNodeData> | undefined) => {
     node.width ??
     (node.type ? FALLBACK_NODE_SIZE_PX[node.type] : undefined) ??
     110;
+  const renderHeight =
+    node.height ??
+    (node.type ? FALLBACK_RENDER_NODE_HEIGHT_PX[node.type] : undefined) ??
+    56;
+  const renderTop = node.position.y;
 
   return {
     ...node,
@@ -62,6 +89,10 @@ const toLogicalNode = (node: Node<TraceNodeData> | undefined) => {
     // After transposing coordinates, the lane axis becomes the render X-axis, so
     // the relevant node size is its measured width.
     height: width,
+    __render: {
+      top: renderTop,
+      bottom: renderTop + renderHeight,
+    },
   };
 };
 
@@ -194,6 +225,83 @@ const adjustPointsForArrowhead = ({
   return simplifyPoints(normalized);
 };
 
+/**
+ * Pick a time coordinate (logical X) for the inter-thread lane crossing.
+ *
+ * In render space, inter-thread lane crossings are horizontal segments. If they
+ * occur at a row's node Y coordinate, they can cut through operation nodes.
+ *
+ * We instead route the crossing through the empty band just below the earlier
+ * operation row (i.e. right before the next `GRID_Y` multiple), which tends to
+ * stay clear of node rectangles while remaining compact.
+ */
+const getInterThreadCrossX = ({
+  sourceX,
+  targetX,
+  sourceNode,
+  targetNode,
+  edgeCrossOffsetPx,
+  rowMaxNodeBottomX,
+}: {
+  sourceX: number;
+  targetX: number;
+  sourceNode: LogicalNode | undefined;
+  targetNode: LogicalNode | undefined;
+  edgeCrossOffsetPx?: number;
+  rowMaxNodeBottomX?: number;
+}) => {
+  const sourceSeq = sourceNode?.data?.sequenceIndex;
+  const targetSeq = targetNode?.data?.sequenceIndex;
+
+  const sourceRowTop =
+    typeof sourceSeq === "number"
+      ? sourceSeq * SEQUENCE_STEP_PX
+      : sourceNode?.__render?.top ?? sourceX;
+  const targetRowTop =
+    typeof targetSeq === "number"
+      ? targetSeq * SEQUENCE_STEP_PX
+      : targetNode?.__render?.top ?? targetX;
+
+  const earlierRowTop = Math.min(sourceRowTop, targetRowTop);
+  const earlierNode =
+    sourceRowTop <= targetRowTop ? sourceNode : targetNode;
+  const earlierNodeBottom = earlierNode?.__render?.bottom ?? earlierRowTop;
+  const requiredBottom = Math.max(
+    earlierNodeBottom,
+    typeof rowMaxNodeBottomX === "number" ? rowMaxNodeBottomX : -Infinity
+  );
+
+  // Compute a safe band that stays below the earlier row's node and above the
+  // next row's top handle region.
+  const bandUpper = earlierRowTop + SEQUENCE_STEP_PX - ROW_TRAVERSAL_MARGIN_PX;
+  const bandLower = Math.min(
+    bandUpper,
+    Math.max(requiredBottom + ROW_TRAVERSAL_MARGIN_PX, bandUpper - ROW_TRAVERSAL_BAND_PX)
+  );
+
+  const bandMax = bandUpper;
+  const bandMin = bandLower;
+  const base = (bandMin + bandMax) / 2;
+
+  // Prefer keeping the crossing time between the endpoints (prevents "backtracking"
+  // along the time axis when one endpoint is on a bottom handle).
+  const minEndpoint = Math.min(sourceX, targetX) + ROW_TRAVERSAL_MARGIN_PX;
+  const maxEndpoint = Math.max(sourceX, targetX) - ROW_TRAVERSAL_MARGIN_PX;
+
+  const desired = base + (edgeCrossOffsetPx ?? 0);
+  if (maxEndpoint <= minEndpoint) {
+    return (sourceX + targetX) / 2;
+  }
+
+  const minAllowed = Math.max(bandMin, minEndpoint);
+  const maxAllowed = Math.min(bandMax, maxEndpoint);
+  if (maxAllowed > minAllowed) {
+    return Math.max(minAllowed, Math.min(maxAllowed, desired));
+  }
+
+  return Math.max(minEndpoint, Math.min(maxEndpoint, desired));
+};
+
 const buildOrthogonalPoints = ({
   sourceX,
   sourceY,
@@ -203,15 +311,23 @@ const buildOrthogonalPoints = ({
   targetNode,
   sourceHandleId,
   edgeYOffsetPx,
+  edgeCrossOffsetPx,
+  rowMaxNodeBottomX,
+  rowMaxSourceNodeBottomX,
+  edgeExitOffsetPx,
 }: {
   sourceX: number;
   sourceY: number;
   targetX: number;
   targetY: number;
-  sourceNode: Node<TraceNodeData> | undefined;
-  targetNode: Node<TraceNodeData> | undefined;
+  sourceNode: LogicalNode | undefined;
+  targetNode: LogicalNode | undefined;
   sourceHandleId?: string | null;
   edgeYOffsetPx?: number;
+  edgeCrossOffsetPx?: number;
+  rowMaxNodeBottomX?: number;
+  rowMaxSourceNodeBottomX?: number;
+  edgeExitOffsetPx?: number;
 }) => {
   if (Math.abs(sourceY - targetY) <= STRAIGHT_EPSILON_PX) {
     return simplifyPoints([
@@ -313,6 +429,13 @@ const buildOrthogonalPoints = ({
     ]);
   }
 
+  const sourceSeq = sourceNode?.data?.sequenceIndex;
+  const targetSeq = targetNode?.data?.sequenceIndex;
+  const earlierSeq =
+    typeof sourceSeq === "number" && typeof targetSeq === "number"
+      ? Math.min(sourceSeq, targetSeq)
+      : undefined;
+
   const sourceBuffer = Math.max(0, (LANE_HEIGHT - sourceMetrics.nodeHeight) / 2);
   const targetBuffer = Math.max(0, (LANE_HEIGHT - targetMetrics.nodeHeight) / 2);
   const sourceRouteY =
@@ -359,12 +482,50 @@ const buildOrthogonalPoints = ({
           )
         : clampedTargetLane;
 
-  const midX = (sourceX + targetX) / 2;
+  // Buffer-channel router (inter-thread):
+  // 1) Drop into the row gap (time axis) by ~5px.
+  // 2) Move laterally into the nearest vertical buffer (lane axis).
+  // 3) If needed, travel north/south within the vertical buffer to the crossing row gap.
+  // 4) Traverse across lanes within the row gap.
+  // 5) Travel north/south in the target lane buffer into the destination handle.
+  const sourceRowTopX =
+    typeof sourceSeq === "number"
+      ? sourceSeq * SEQUENCE_STEP_PX
+      : sourceNode?.__render?.top ?? sourceX;
+  const { bandMin: sourceBandMin, bandMax: sourceBandMax } =
+    getRowGapBandForRowTop({
+      rowTopX: sourceRowTopX,
+      rowMaxNodeBottomX: rowMaxSourceNodeBottomX,
+    });
+  const useCrossOffsetForExit =
+    typeof earlierSeq === "number" &&
+    typeof sourceSeq === "number" &&
+    sourceSeq === earlierSeq;
+  const desiredExitX =
+    sourceX +
+    EXIT_FROM_SOURCE_PX +
+    (useCrossOffsetForExit ? (edgeCrossOffsetPx ?? 0) : (edgeExitOffsetPx ?? 0));
+  const startGapX = Math.max(
+    sourceX + EXIT_FROM_SOURCE_PX,
+    Math.max(sourceBandMin, Math.min(sourceBandMax, desiredExitX))
+  );
+
+  const crossX = useCrossOffsetForExit
+    ? startGapX
+    : getInterThreadCrossX({
+        sourceX,
+        targetX,
+        sourceNode,
+        targetNode,
+        edgeCrossOffsetPx,
+        rowMaxNodeBottomX,
+      });
   return simplifyPoints([
     { x: sourceX, y: sourceY },
-    { x: sourceX, y: clampedSourceRouteY },
-    { x: midX, y: clampedSourceRouteY },
-    { x: midX, y: clampedTargetRouteY },
+    { x: startGapX, y: sourceY },
+    { x: startGapX, y: clampedSourceRouteY },
+    { x: crossX, y: clampedSourceRouteY },
+    { x: crossX, y: clampedTargetRouteY },
     { x: targetX, y: clampedTargetRouteY },
     { x: targetX, y: targetY },
   ]);
@@ -457,6 +618,152 @@ const getBufferEdgeOffsetPx = (edgeId: string) => {
   return slot ? slot * BUFFER_OFFSET_STEP_PX : 0;
 };
 
+/**
+ * Deterministic time-axis (logical X) offset used to spread inter-thread lane
+ * crossings within a row gap band.
+ *
+ * @param edgeId React Flow edge ID (must be stable).
+ */
+const getCrossEdgeOffsetPx = (edgeId: string) => {
+  const slot =
+    BUFFER_OFFSET_SLOTS[
+      hashString(`${edgeId}-cross-x`) % BUFFER_OFFSET_SLOTS.length
+    ];
+  return slot ? slot * CROSS_X_OFFSET_STEP_PX : 0;
+};
+
+/**
+ * Small deterministic offset for the initial "drop into the row gap" step.
+ * Keeps the drop near ~5px while still helping reduce overlap.
+ */
+const getExitEdgeOffsetPx = (edgeId: string) => {
+  const slot =
+    BUFFER_OFFSET_SLOTS[
+      hashString(`${edgeId}-exit-x`) % BUFFER_OFFSET_SLOTS.length
+    ];
+  return slot ? slot * EXIT_X_OFFSET_STEP_PX : 0;
+};
+
+type Rect = { left: number; top: number; right: number; bottom: number };
+
+/**
+ * Compute a render-space bounding box for a React Flow node.
+ *
+ * React Flow uses `nodeOrigin={[0.5, 0]}` in this app, so:
+ * - `position.x` is centered horizontally
+ * - `position.y` is the top edge
+ */
+const getRenderNodeRect = (node: Node<TraceNodeData>): Rect => {
+  const width =
+    node.width ??
+    (node.type ? FALLBACK_NODE_SIZE_PX[node.type] : undefined) ??
+    110;
+  const height =
+    node.height ??
+    (node.type ? FALLBACK_RENDER_NODE_HEIGHT_PX[node.type] : undefined) ??
+    56;
+
+  const left = node.position.x - width / 2;
+  const top = node.position.y;
+
+  return { left, top, right: left + width, bottom: top + height };
+};
+
+const expandRect = (rect: Rect, padding: { x: number; y: number }): Rect => ({
+  left: rect.left - padding.x,
+  right: rect.right + padding.x,
+  top: rect.top - padding.y,
+  bottom: rect.bottom + padding.y,
+});
+
+const pointDistanceToRect = (point: Point, rect: Rect) => {
+  const dx =
+    point.x < rect.left
+      ? rect.left - point.x
+      : point.x > rect.right
+        ? point.x - rect.right
+        : 0;
+  const dy =
+    point.y < rect.top
+      ? rect.top - point.y
+      : point.y > rect.bottom
+        ? point.y - rect.bottom
+        : 0;
+  return Math.hypot(dx, dy);
+};
+
+const getApproxLabelPadding = (relationType: string) => {
+  const textWidth = Math.max(10, relationType.length * 6);
+  const width = 22 + textWidth;
+  const height = 18;
+  return { x: width / 2 + 6, y: height / 2 + 6 };
+};
+
+const hashToUnitInterval = (value: string) => {
+  // `hashString` is uint32; normalize to [0,1).
+  return hashString(value) / 2 ** 32;
+};
+
+/**
+ * Pick a stable parameter along a segment to spread label placements.
+ *
+ * Midpoints tend to collide when many edges share a long trunk segment, so we
+ * use a per-edge parameter to distribute labels along the segment length.
+ */
+const getEdgeLabelT = (edgeId: string) => {
+  const unit = hashToUnitInterval(`${edgeId}-label-t`);
+  return 0.22 + unit * 0.56;
+};
+
+/**
+ * Small perpendicular offset applied when anchoring labels in buffer bands.
+ */
+const getEdgeLabelPerpOffsetPx = (edgeId: string) => {
+  const unit = hashToUnitInterval(`${edgeId}-label-perp`);
+  const signed = unit * 2 - 1; // [-1, 1)
+  return Math.round(signed * 6);
+};
+
+const clampToRowGapBand = (y: number) => {
+  const rowTop = Math.floor(y / SEQUENCE_STEP_PX) * SEQUENCE_STEP_PX;
+  const bandMax = rowTop + SEQUENCE_STEP_PX - ROW_TRAVERSAL_MARGIN_PX;
+  const bandMin = bandMax - ROW_TRAVERSAL_BAND_PX;
+  return Math.max(bandMin, Math.min(bandMax, y));
+};
+
+const getRowGapBandForRowTop = ({
+  rowTopX,
+  rowMaxNodeBottomX,
+}: {
+  rowTopX: number;
+  rowMaxNodeBottomX?: number;
+}) => {
+  const bandMax = rowTopX + SEQUENCE_STEP_PX - ROW_TRAVERSAL_MARGIN_PX;
+  const requiredBottom =
+    typeof rowMaxNodeBottomX === "number" ? rowMaxNodeBottomX : rowTopX;
+  const bandMin = Math.min(
+    bandMax,
+    Math.max(requiredBottom + ROW_TRAVERSAL_MARGIN_PX, bandMax - ROW_TRAVERSAL_BAND_PX)
+  );
+  return { bandMin, bandMax };
+};
+
+const isInRowGapBand = (y: number) => {
+  const rowTop = Math.floor(y / SEQUENCE_STEP_PX) * SEQUENCE_STEP_PX;
+  const withinRow = y - rowTop;
+  const bandStart =
+    SEQUENCE_STEP_PX - ROW_TRAVERSAL_MARGIN_PX - ROW_TRAVERSAL_BAND_PX - 2;
+  const bandEnd = SEQUENCE_STEP_PX - ROW_TRAVERSAL_MARGIN_PX + 2;
+  return withinRow >= bandStart && withinRow <= bandEnd;
+};
+
+const isInLaneSideBuffer = (x: number) => {
+  const laneCenter =
+    Math.round((x - LANE_HEIGHT / 2) / LANE_HEIGHT) * LANE_HEIGHT +
+    LANE_HEIGHT / 2;
+  return Math.abs(x - laneCenter) >= 60;
+};
+
 const getRelationColor = (relationType: RelationType) => {
   const core = coreRelationColors[relationType];
   if (core) {
@@ -481,9 +788,10 @@ const RelationEdge = ({
   data,
   style,
 }: EdgeProps<RelationEdgeData>) => {
-  const { getNode } = useReactFlow<TraceNodeData, RelationEdgeData>();
+  const { getNode, getNodes } = useReactFlow<TraceNodeData, RelationEdgeData>();
   const sourceNode = toLogicalNode(source ? getNode(source) : undefined);
   const targetNode = toLogicalNode(target ? getNode(target) : undefined);
+  const nodes = getNodes();
 
   const invalid = data?.invalid ?? false;
   const relationType = data?.relationType ?? "po";
@@ -493,6 +801,42 @@ const RelationEdge = ({
   const edgeLabelMode = useStore((state) => state.edgeLabelMode);
   const focusedEdgeLabelId = useStore((state) => state.focusedEdgeLabelId);
   const edgeOffsetPx = getBufferEdgeOffsetPx(id);
+  const edgeCrossOffsetPx = getCrossEdgeOffsetPx(id);
+  const edgeExitOffsetPx = getExitEdgeOffsetPx(id);
+  const edgeLabelT = getEdgeLabelT(id);
+  const edgeLabelPerpOffsetPx = getEdgeLabelPerpOffsetPx(id);
+
+  const getRowMaxNodeBottomX = (sequenceIndex: number) => {
+    let maxBottom = -Infinity;
+
+    for (const node of nodes) {
+      const nodeData = node.data as TraceNodeData | undefined;
+      if (nodeData?.sequenceIndex !== sequenceIndex) {
+        continue;
+      }
+      const rect = getRenderNodeRect(node as Node<TraceNodeData>);
+      maxBottom = Math.max(maxBottom, rect.bottom);
+    }
+
+    return Number.isFinite(maxBottom) ? maxBottom : undefined;
+  };
+
+  const rowMaxNodeBottomX = (() => {
+    const sourceSeq = sourceNode?.data?.sequenceIndex;
+    const targetSeq = targetNode?.data?.sequenceIndex;
+    if (typeof sourceSeq !== "number" || typeof targetSeq !== "number") {
+      return undefined;
+    }
+    const earlierSeq = Math.min(sourceSeq, targetSeq);
+    return getRowMaxNodeBottomX(earlierSeq);
+  })();
+  const rowMaxSourceNodeBottomX = (() => {
+    const sourceSeq = sourceNode?.data?.sequenceIndex;
+    if (typeof sourceSeq !== "number") {
+      return undefined;
+    }
+    return getRowMaxNodeBottomX(sourceSeq);
+  })();
 
   // Transpose edge coordinates to the logical routing space (time=X, lane=Y).
   const logicalSourceX = sourceY;
@@ -509,6 +853,10 @@ const RelationEdge = ({
     targetNode,
     sourceHandleId,
     edgeYOffsetPx: edgeOffsetPx,
+    edgeCrossOffsetPx,
+    rowMaxNodeBottomX,
+    rowMaxSourceNodeBottomX,
+    edgeExitOffsetPx,
   });
   const pointsWithArrow = adjustPointsForArrowhead({
     points,
@@ -527,7 +875,12 @@ const RelationEdge = ({
     relationType === "ad" ? 14 : relationType === "cd" ? 12 : 12;
   const bandOpacity = relationType === "ad" ? 0.25 : 0.22;
   const labelAnchor = (() => {
-    let best: { x: number; y: number; length: number } | null = null;
+    const labelPadding = getApproxLabelPadding(relationType);
+    const avoidRects = nodes.map((node) =>
+      expandRect(getRenderNodeRect(node as Node<TraceNodeData>), labelPadding)
+    );
+
+    let best: { x: number; y: number; score: number } | null = null;
 
     for (let i = 0; i < renderPoints.length - 1; i += 1) {
       const start = renderPoints[i];
@@ -535,18 +888,59 @@ const RelationEdge = ({
       if (!start || !end) {
         continue;
       }
-      const isAxisAligned = start.x === end.x || start.y === end.y;
-      if (!isAxisAligned) {
+
+      const isHorizontal = start.y === end.y && start.x !== end.x;
+      const isVertical = start.x === end.x && start.y !== end.y;
+      if (!isHorizontal && !isVertical) {
         continue;
       }
 
       const length = Math.hypot(end.x - start.x, end.y - start.y);
-      if (!best || length > best.length) {
-        best = {
-          x: (start.x + end.x) / 2,
-          y: (start.y + end.y) / 2,
-          length,
-        };
+      const t = edgeLabelT;
+      const anchor = isHorizontal
+        ? { x: start.x + (end.x - start.x) * t, y: start.y }
+        : { x: start.x, y: start.y + (end.y - start.y) * t };
+
+      // If we're anchoring inside a buffer band, allow a small perpendicular
+      // adjustment to reduce label-on-label overlap.
+      const inRowGap = isHorizontal && isInRowGapBand(anchor.y);
+      const inLaneBuffer = isVertical && isInLaneSideBuffer(anchor.x);
+      const adjusted = (() => {
+        if (inRowGap) {
+          return {
+            x: anchor.x,
+            y: clampToRowGapBand(anchor.y + edgeLabelPerpOffsetPx),
+          };
+        }
+        if (inLaneBuffer) {
+          return { x: anchor.x + edgeLabelPerpOffsetPx, y: anchor.y };
+        }
+        return anchor;
+      })();
+
+      let minClearance = Infinity;
+      for (const rect of avoidRects) {
+        const clearance = pointDistanceToRect(adjusted, rect);
+        minClearance = Math.min(minClearance, clearance);
+        if (minClearance === 0) {
+          break;
+        }
+      }
+
+      if (minClearance === 0) {
+        continue;
+      }
+
+      const zoneBonus = inRowGap ? 220 : inLaneBuffer ? 160 : 0;
+      const jitter = (hashString(`${id}-seg-${i}`) % 31) / 31;
+
+      const score =
+        zoneBonus +
+        Math.min(600, length) +
+        Math.min(250, minClearance) * 9 +
+        jitter;
+      if (!best || score > best.score) {
+        best = { x: adjusted.x, y: adjusted.y, score };
       }
     }
 

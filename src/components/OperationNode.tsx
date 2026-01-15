@@ -2,17 +2,28 @@ import { useMemo } from "react";
 import { Handle, Position, type NodeProps } from "reactflow";
 import { useStore } from "../store/useStore";
 import type {
-  MemoryOrder,
   MemoryVariable,
   OperationType,
   TraceNodeData,
 } from "../types";
 
-const orderColors: Record<MemoryOrder, string> = {
-  Acquire: "bg-red-200",
-  Release: "bg-blue-200",
-  Relaxed: "bg-emerald-200",
-  SC: "bg-amber-200",
+const getOrderColorClass = (order: string | undefined) => {
+  switch (order) {
+    case "Acquire":
+      return "bg-red-200";
+    case "Release":
+      return "bg-blue-200";
+    case "Relaxed":
+      return "bg-emerald-200";
+    case "Acq_Rel":
+      return "bg-purple-200";
+    case "SC":
+      return "bg-amber-200";
+    case "Standard":
+      return "bg-slate-200";
+    default:
+      return "bg-slate-200";
+  }
 };
 
 const opLabels: Record<OperationType, string> = {
@@ -23,11 +34,23 @@ const opLabels: Record<OperationType, string> = {
   BRANCH: "BR",
 };
 
-const orderShort: Record<MemoryOrder, string> = {
-  Acquire: "Acq",
-  Release: "Rel",
-  Relaxed: "Rlx",
-  SC: "SC",
+const getOrderShort = (order: string) => {
+  switch (order) {
+    case "Acquire":
+      return "Acq";
+    case "Release":
+      return "Rel";
+    case "Relaxed":
+      return "Rlx";
+    case "Acq_Rel":
+      return "AcqRel";
+    case "SC":
+      return "SC";
+    case "Standard":
+      return "Std";
+    default:
+      return order;
+  }
 };
 
 const formatMemoryLabel = (
@@ -58,7 +81,7 @@ const OperationNode = ({ data, selected }: NodeProps<TraceNodeData>) => {
       ? formatMemoryLabel(memoryById.get(op.addressId), memoryById)
       : "";
     const addressLabel = resolvedAddress || op.address || "";
-    const baseOrder = op.memoryOrder ? ` (${orderShort[op.memoryOrder]})` : "";
+    const baseOrder = op.memoryOrder ? ` (${getOrderShort(op.memoryOrder)})` : "";
 
     if (op.text) {
       return op.text;
@@ -96,10 +119,10 @@ const OperationNode = ({ data, selected }: NodeProps<TraceNodeData>) => {
       const casValues =
         expected || desired ? ` (${expected || "?"}→${desired || "?"})` : "";
       const successOrder = op.successMemoryOrder
-        ? orderShort[op.successMemoryOrder]
+        ? getOrderShort(op.successMemoryOrder)
         : "";
       const failureOrder = op.failureMemoryOrder
-        ? orderShort[op.failureMemoryOrder]
+        ? getOrderShort(op.failureMemoryOrder)
         : "";
       const casOrders =
         successOrder || failureOrder
@@ -113,9 +136,7 @@ const OperationNode = ({ data, selected }: NodeProps<TraceNodeData>) => {
     return `${opLabel}${address}${baseOrder}`;
   }, [data.operation, memoryById]);
 
-  const colorClass = data.operation.memoryOrder
-    ? orderColors[data.operation.memoryOrder]
-    : "bg-slate-200";
+  const colorClass = getOrderColorClass(data.operation.memoryOrder);
 
   return (
     <div

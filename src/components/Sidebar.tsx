@@ -20,6 +20,8 @@ import { checkEdgeConstraints } from "../utils/edgeConstraints";
 import BranchConditionEditor from "./BranchConditionEditor";
 import { evaluateBranchCondition } from "../utils/branchEvaluation";
 import SessionTitleDialog from "./SessionTitleDialog";
+import RelationDefinitionsDialog from "./RelationDefinitionsDialog";
+import { Trash2 } from "lucide-react";
 
 type ToolboxItem = {
   label: string;
@@ -35,11 +37,25 @@ const TOOLBOX_ITEMS: ToolboxItem[] = [
   { label: "Branch", type: "BRANCH", nodeType: "branch" },
 ];
 
-const MEMORY_ORDERS: MemoryOrder[] = ["Relaxed", "Acquire", "Release", "SC"];
 const MEMORY_ITEMS: { label: string; type: MemoryType }[] = [
   { label: "int", type: "int" },
   { label: "array", type: "array" },
 ];
+
+const formatRelationTypeLabel = (relationType: RelationType) => {
+  switch (relationType) {
+    case "rf":
+      return "rf (read-from)";
+    case "co":
+      return "co (coherence)";
+    case "fr":
+      return "fr (from-read)";
+    case "po":
+      return "po (program order)";
+    default:
+      return relationType;
+  }
+};
 
 const formatMemoryLabel = (
   item: MemoryVariable,
@@ -84,13 +100,20 @@ const Sidebar = () => {
   const validateGraph = useStore((state) => state.validateGraph);
   const sessionTitle = useStore((state) => state.sessionTitle);
   const setSessionTitle = useStore((state) => state.setSessionTitle);
+  const modelConfig = useStore((state) => state.modelConfig);
+  const resetModelConfig = useStore((state) => state.resetModelConfig);
+  const importCatFiles = useStore((state) => state.importCatFiles);
+  const removeCatFile = useStore((state) => state.removeCatFile);
+  const catModel = useStore((state) => state.catModel);
   const selectedMemoryIds = useStore((state) => state.selectedMemoryIds);
   const groupSelectedIntoStruct = useStore(
     (state) => state.groupSelectedIntoStruct
   );
   const sessionFileInputRef = useRef<HTMLInputElement | null>(null);
+  const catFileInputRef = useRef<HTMLInputElement | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [relationDialogOpen, setRelationDialogOpen] = useState(false);
 
   const selectedNode = useMemo(
     () => nodes.find((node) => node.selected),
@@ -209,31 +232,34 @@ const Sidebar = () => {
         .replace(/\s+/g, " ")
         .trim();
 
-    const memory = {
-      constants: memoryEnv.filter((item) => item.scope === "constants"),
-      locals: memoryEnv.filter((item) => item.scope === "locals"),
-      shared: memoryEnv.filter((item) => item.scope === "shared"),
-    };
-    const snapshot = {
-      title: normalizedTitle || undefined,
-      memory,
-      nodes,
-      edges,
-      threads,
-      activeBranch,
-      exportedAt: new Date().toISOString(),
-    };
-    const blob = new Blob([JSON.stringify(snapshot, null, 2)], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = safeFilename ? `${safeFilename}.json` : "litmus-session.json";
-    link.click();
-    URL.revokeObjectURL(url);
+      const memory = {
+        constants: memoryEnv.filter((item) => item.scope === "constants"),
+        locals: memoryEnv.filter((item) => item.scope === "locals"),
+        shared: memoryEnv.filter((item) => item.scope === "shared"),
+      };
+      const snapshot = {
+        title: normalizedTitle || undefined,
+        model: modelConfig,
+        memory,
+        nodes,
+        edges,
+        threads,
+        activeBranch,
+        exportedAt: new Date().toISOString(),
+      };
+      const blob = new Blob([JSON.stringify(snapshot, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = safeFilename
+        ? `${safeFilename}.json`
+        : "litmus-session.json";
+      link.click();
+      URL.revokeObjectURL(url);
     },
-    [activeBranch, edges, memoryEnv, nodes, setSessionTitle, threads]
+    [activeBranch, edges, memoryEnv, modelConfig, nodes, setSessionTitle, threads]
   );
 
   const handleExportSession = useCallback(() => {
@@ -260,6 +286,19 @@ const Sidebar = () => {
       }
     },
     [importSession]
+  );
+
+  const handleImportCatFiles = useCallback(
+    async (fileList: FileList | null) => {
+      if (!fileList || fileList.length === 0) {
+        return;
+      }
+      await importCatFiles(fileList);
+      if (catFileInputRef.current) {
+        catFileInputRef.current.value = "";
+      }
+    },
+    [importCatFiles]
   );
 
   const selectedMemoryItems = useMemo(
@@ -422,6 +461,95 @@ const Sidebar = () => {
         </div>
       </section>
 
+      <section className="space-y-3">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Model
+        </h2>
+        <div className="space-y-2">
+          <div className="rounded border border-slate-200 bg-slate-50 px-2 py-2 text-xs text-slate-700">
+            <div className="font-semibold">Relations</div>
+            <div className="text-slate-500">
+              {modelConfig.relationTypes.length} type(s)
+            </div>
+          </div>
+          <button
+            type="button"
+            className="w-full rounded border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-800"
+            onClick={() => catFileInputRef.current?.click()}
+          >
+            Upload .cat File(s)
+          </button>
+          <input
+            ref={catFileInputRef}
+            type="file"
+            accept=".cat"
+            multiple
+            className="hidden"
+            onChange={(event) => void handleImportCatFiles(event.target.files)}
+          />
+          {Object.keys(catModel.filesByName).length ? (
+            <div className="rounded border border-slate-200 bg-white">
+              <div className="border-b border-slate-200 px-2 py-1.5 text-[11px] font-semibold text-slate-600">
+                Loaded .cat files
+              </div>
+              <div className="divide-y divide-slate-100">
+                {Object.keys(catModel.filesByName)
+                  .slice()
+                  .sort((a, b) => a.localeCompare(b))
+                  .map((fileName) => (
+                    <div
+                      key={fileName}
+                      className="flex items-center justify-between gap-2 px-2 py-1.5"
+                    >
+                      <div className="min-w-0 truncate text-xs text-slate-800">
+                        {fileName}
+                      </div>
+                      <button
+                        type="button"
+                        className="inline-flex items-center justify-center rounded border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-50"
+                        aria-label={`Remove ${fileName}`}
+                        onClick={() => removeCatFile(fileName)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          ) : null}
+          {catModel.analysis?.missingIncludes.length ? (
+            <div className="rounded border border-amber-200 bg-amber-50 px-2 py-2 text-xs text-amber-800">
+              Missing include file(s):{" "}
+              {catModel.analysis.missingIncludes.join(", ")}
+            </div>
+          ) : null}
+          {catModel.analysis?.unresolvedNames.length ? (
+            <div className="rounded border border-amber-200 bg-amber-50 px-2 py-2 text-xs text-amber-800">
+              Unresolved name(s):{" "}
+              {catModel.analysis.unresolvedNames.slice(0, 12).join(", ")}
+              {catModel.analysis.unresolvedNames.length > 12 ? "…" : ""}
+            </div>
+          ) : null}
+          {catModel.error ? (
+            <div className="text-xs text-red-600">{catModel.error}</div>
+          ) : null}
+          <button
+            type="button"
+            className="w-full rounded bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+            onClick={() => setRelationDialogOpen(true)}
+          >
+            View Relation Definitions
+          </button>
+          <button
+            type="button"
+            className="w-full rounded border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-800"
+            onClick={resetModelConfig}
+          >
+            Reset Model Config
+          </button>
+        </div>
+      </section>
+
       <SessionTitleDialog
         open={exportDialogOpen}
         initialValue={sessionTitle}
@@ -430,6 +558,12 @@ const Sidebar = () => {
           setExportDialogOpen(false);
           exportSession(title);
         }}
+      />
+
+      <RelationDefinitionsDialog
+        open={relationDialogOpen}
+        definitions={catModel.definitions}
+        onClose={() => setRelationDialogOpen(false)}
       />
 
       <section className="space-y-3">
@@ -503,14 +637,15 @@ const Sidebar = () => {
               value={selectedEdgeContext.relationType}
               onChange={(event) =>
                 updateSelectedEdge({
-                  relationType: event.target.value as RelationType,
+                  relationType: event.target.value,
                 })
               }
             >
-              <option value="rf">rf (read-from)</option>
-              <option value="co">co (coherence)</option>
-              <option value="fr">fr (from-read)</option>
-              <option value="po">po (program order)</option>
+              {modelConfig.relationTypes.map((relationType) => (
+                <option key={relationType} value={relationType}>
+                  {formatRelationTypeLabel(relationType)}
+                </option>
+              ))}
             </select>
             <button
               type="button"
@@ -630,13 +765,13 @@ const Sidebar = () => {
                       onChange={(event) =>
                         updateSelectedOperation({
                           successMemoryOrder: event.target.value
-                            ? (event.target.value as MemoryOrder)
+                            ? event.target.value
                             : undefined,
                         })
                       }
                     >
                       <option value="">Success Memory Order</option>
-                      {MEMORY_ORDERS.map((order) => (
+                      {modelConfig.memoryOrders.map((order) => (
                         <option key={order} value={order}>
                           {order}
                         </option>
@@ -648,13 +783,13 @@ const Sidebar = () => {
                       onChange={(event) =>
                         updateSelectedOperation({
                           failureMemoryOrder: event.target.value
-                            ? (event.target.value as MemoryOrder)
+                            ? event.target.value
                             : undefined,
                         })
                       }
                     >
                       <option value="">Failure Memory Order</option>
-                      {MEMORY_ORDERS.map((order) => (
+                      {modelConfig.memoryOrders.map((order) => (
                         <option key={order} value={order}>
                           {order}
                         </option>
@@ -672,13 +807,13 @@ const Sidebar = () => {
                     onChange={(event) =>
                       updateSelectedOperation({
                         memoryOrder: event.target.value
-                          ? (event.target.value as MemoryOrder)
+                          ? event.target.value
                           : undefined,
                       })
                     }
                   >
                     <option value="">Memory Order</option>
-                    {MEMORY_ORDERS.map((order) => (
+                    {modelConfig.memoryOrders.map((order) => (
                       <option key={order} value={order}>
                         {order}
                       </option>

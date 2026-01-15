@@ -6,6 +6,8 @@ export type EdgeConstraintResult = {
   sharedAddress?: string;
 };
 
+const perLocationRelations = new Set<RelationType>(["rf", "co", "fr"]);
+
 const formatMemoryLabel = (
   item: MemoryVariable,
   memoryById: Map<string, MemoryVariable>
@@ -58,7 +60,7 @@ export const checkEdgeConstraints = ({
     };
   }
 
-  if (sameThread) {
+  if (!perLocationRelations.has(relationType)) {
     return { allowed: true };
   }
 
@@ -69,18 +71,16 @@ export const checkEdgeConstraints = ({
   if (!sourceAddress || !targetAddress) {
     return {
       allowed: false,
-      reason:
-        "Cross-thread edges require both endpoints to reference the same memory location.",
+      reason: `A "${relationType}" edge requires both endpoints to reference the same memory location.`,
     };
   }
 
   if (sourceAddress !== targetAddress) {
     return {
       allowed: false,
-      reason: `Cross-thread edges require the same memory location ("${sourceAddress}" vs "${targetAddress}").`,
+      reason: `A "${relationType}" edge requires the same memory location ("${sourceAddress}" vs "${targetAddress}").`,
     };
   }
 
   return { allowed: true, sharedAddress: sourceAddress };
 };
-

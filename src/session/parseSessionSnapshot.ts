@@ -4,13 +4,13 @@ import type {
   MemoryScope,
   RelationEdge,
   RelationType,
+  SessionModelConfig,
   SessionMemorySnapshot,
   SessionSnapshot,
   TraceNode,
 } from "../types";
 
 const allowedOperationTypes = new Set(["LOAD", "STORE", "RMW", "FENCE", "BRANCH"]);
-const allowedRelationTypes = new Set(["rf", "co", "fr", "po"]);
 const allowedMemoryTypes = new Set(["int", "array", "struct"]);
 const allowedMemoryScopes = new Set(["constants", "locals", "shared"]);
 
@@ -64,6 +64,47 @@ const parseStringArray = (value: unknown, label: string) => {
     }
   });
   return value as string[];
+};
+
+const parseIdentifier = (value: unknown, label: string) => {
+  const raw = parseString(value, label).trim();
+  if (!raw) {
+    throw new Error(`${label} cannot be empty.`);
+  }
+  if (!/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(raw)) {
+    throw new Error(`${label} must be an identifier (letters, numbers, "_", "-", ".").`);
+  }
+  return raw;
+};
+
+const parseIdentifierArray = (value: unknown, label: string) =>
+  parseStringArray(value, label).map((item, index) =>
+    parseIdentifier(item, `${label}[${index}]`)
+  );
+
+const parseModelConfig = (value: unknown): SessionModelConfig => {
+  if (!isRecord(value)) {
+    throw new Error(`model must be an object.`);
+  }
+
+  const relationTypes = parseIdentifierArray(
+    value.relationTypes ?? [],
+    "model.relationTypes"
+  );
+  const memoryOrders = parseIdentifierArray(
+    value.memoryOrders ?? [],
+    "model.memoryOrders"
+  );
+
+  if (relationTypes.length === 0) {
+    throw new Error(`model.relationTypes must include at least one item.`);
+  }
+
+  if (memoryOrders.length === 0) {
+    throw new Error(`model.memoryOrders must include at least one item.`);
+  }
+
+  return { relationTypes, memoryOrders };
 };
 
 const parseNodes = (value: unknown): TraceNode[] => {
@@ -150,8 +191,8 @@ const parseEdges = (value: unknown) => {
         : "relation";
     const data = isRecord(item.data) ? item.data : {};
     const relationType =
-      typeof data.relationType === "string" && allowedRelationTypes.has(data.relationType)
-        ? (data.relationType as RelationType)
+      typeof data.relationType === "string"
+        ? (parseIdentifier(data.relationType, `edges[${index}].data.relationType`) as RelationType)
         : ("po" as const);
 
     return {
@@ -334,6 +375,9 @@ export const parseSessionSnapshot = (value: unknown): SessionSnapshot => {
     throw new Error(`Session JSON must include a "memory" section.`);
   }
 
+  const model =
+    typeof value.model === "undefined" ? undefined : parseModelConfig(value.model);
+
   const nodes =
     typeof value.nodes === "undefined" ? [] : parseNodes(value.nodes);
   const edges =
@@ -356,6 +400,7 @@ export const parseSessionSnapshot = (value: unknown): SessionSnapshot => {
 
   return {
     title,
+    model,
     memory,
     nodes,
     edges,

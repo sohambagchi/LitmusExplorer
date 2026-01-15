@@ -33,7 +33,18 @@ export type MemoryVariable =
   | StructMemoryVariable;
 
 export type OperationType = "LOAD" | "STORE" | "RMW" | "FENCE" | "BRANCH";
-export type MemoryOrder = "Relaxed" | "Acquire" | "Release" | "SC";
+
+export const DEFAULT_MEMORY_ORDERS = [
+  "Standard",
+  "Relaxed",
+  "Acquire",
+  "Release",
+  "Acq_Rel",
+  "SC",
+] as const;
+
+export type DefaultMemoryOrder = (typeof DEFAULT_MEMORY_ORDERS)[number];
+export type MemoryOrder = string;
 export type BranchPath = "then" | "else";
 
 export type ActiveBranch = {
@@ -85,7 +96,9 @@ export type TraceNodeData = {
 
 export type TraceNode = Node<TraceNodeData>;
 
-export type RelationType = "rf" | "co" | "fr" | "po";
+export const DEFAULT_RELATION_TYPES = ["rf", "co", "fr", "po"] as const;
+export type DefaultRelationType = (typeof DEFAULT_RELATION_TYPES)[number];
+export type RelationType = string;
 
 export type RelationEdgeData = {
   relationType: RelationType;
@@ -102,10 +115,16 @@ export type SessionMemorySnapshot = {
 
 export type SessionSnapshot = {
   title?: string;
+  model?: SessionModelConfig;
   memory: SessionMemorySnapshot;
   nodes: TraceNode[];
   edges: RelationEdge[];
   threads: string[];
   activeBranch: ActiveBranch | null;
   exportedAt?: string;
+};
+
+export type SessionModelConfig = {
+  relationTypes: RelationType[];
+  memoryOrders: MemoryOrder[];
 };

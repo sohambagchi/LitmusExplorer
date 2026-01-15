@@ -9,23 +9,37 @@ import type {
   ActiveBranch,
   MemoryVariable,
   RelationEdge,
+  SessionModelConfig,
   SessionSnapshot,
   TraceNode,
 } from "../types";
 import { checkEdgeConstraints } from "../utils/edgeConstraints";
+import { DEFAULT_MODEL_CONFIG } from "../config/defaultModelConfig";
+import { analyzeCatFiles, type CatModelAnalysis } from "../cat/catParser";
 
 type NodesUpdater = TraceNode[] | ((nodes: TraceNode[]) => TraceNode[]);
 type EdgesUpdater = RelationEdge[] | ((edges: RelationEdge[]) => RelationEdge[]);
 
 type StoreState = {
   sessionTitle: string;
+  modelConfig: SessionModelConfig;
   nodes: TraceNode[];
   edges: RelationEdge[];
   memoryEnv: MemoryVariable[];
   selectedMemoryIds: string[];
   threads: string[];
   activeBranch: ActiveBranch | null;
+  catModel: {
+    filesByName: Record<string, string>;
+    analysis: CatModelAnalysis | null;
+    definitions: Array<{ name: string; fileName: string; body: string }>;
+    error: string | null;
+  };
   setSessionTitle: (title: string) => void;
+  setModelConfig: (updates: Partial<SessionModelConfig>) => void;
+  resetModelConfig: () => void;
+  importCatFiles: (files: FileList | File[]) => Promise<void>;
+  removeCatFile: (fileName: string) => void;
   setNodes: (updater: NodesUpdater) => void;
   setEdges: (updater: EdgesUpdater) => void;
   onNodesChange: (changes: NodeChange[]) => void;
@@ -68,6 +82,31 @@ const createDefaultMemoryEnv = () =>
   DEFAULT_MEMORY_ENV.map((item) => ({
     ...item,
   }));
+
+const createDefaultModelConfig = (): SessionModelConfig => ({
+  relationTypes: [...DEFAULT_MODEL_CONFIG.relationTypes],
+  memoryOrders: [...DEFAULT_MODEL_CONFIG.memoryOrders],
+});
+
+const uniqueInOrder = (items: string[]) => {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of items) {
+    const normalized = item.trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out;
+};
+
+const normalizeModelConfig = (config: SessionModelConfig): SessionModelConfig => ({
+  relationTypes: uniqueInOrder(config.relationTypes),
+  memoryOrders: uniqueInOrder(config.memoryOrders),
+});
+
 const getNextThreadId = (threads: string[]) => {
   const used = new Set(threads);
   let maxIndex = -1;
@@ -95,13 +134,102 @@ const getNextThreadId = (threads: string[]) => {
 
 export const useStore = create<StoreState>()((set, get) => ({
   sessionTitle: "",
+  modelConfig: createDefaultModelConfig(),
   nodes: [],
   edges: [],
   memoryEnv: createDefaultMemoryEnv(),
   selectedMemoryIds: [],
   threads: ["T0"],
   activeBranch: null,
+  catModel: { filesByName: {}, analysis: null, definitions: [], error: null },
   setSessionTitle: (title) => set({ sessionTitle: title }),
+  setModelConfig: (updates) =>
+    set((state) => ({
+      modelConfig: normalizeModelConfig({ ...state.modelConfig, ...updates }),
+    })),
+  resetModelConfig: () =>
+    set({
+      modelConfig: createDefaultModelConfig(),
+      catModel: { filesByName: {}, analysis: null, definitions: [], error: null },
+    }),
+  importCatFiles: async (files) => {
+    const fileList = Array.isArray(files) ? files : Array.from(files);
+    if (fileList.length === 0) {
+      return;
+    }
+
+    try {
+      const readResults = await Promise.all(
+        fileList.map(async (file) => ({
+          name: file.name,
+          text: await file.text(),
+        }))
+      );
+
+      set((state) => {
+        const filesByName = { ...state.catModel.filesByName };
+        for (const result of readResults) {
+          filesByName[result.name] = result.text;
+        }
+
+        const { analysis, nonMacroDefined, nonMacroDefinitions } =
+          analyzeCatFiles(filesByName);
+        const relationTypes = uniqueInOrder([
+          ...DEFAULT_MODEL_CONFIG.relationTypes,
+          ...nonMacroDefined,
+        ]);
+
+        return {
+          modelConfig: normalizeModelConfig({
+            ...state.modelConfig,
+            relationTypes,
+          }),
+          catModel: {
+            filesByName,
+            analysis,
+            definitions: nonMacroDefinitions,
+            error: null,
+          },
+        };
+      });
+    } catch (error) {
+      set((state) => ({
+        catModel: {
+          ...state.catModel,
+          error: error instanceof Error ? error.message : "Failed to read .cat file.",
+        },
+      }));
+    }
+  },
+  removeCatFile: (fileName) => {
+    set((state) => {
+      if (!Object.prototype.hasOwnProperty.call(state.catModel.filesByName, fileName)) {
+        return state;
+      }
+      const filesByName = { ...state.catModel.filesByName };
+      delete filesByName[fileName];
+
+      const { analysis, nonMacroDefined, nonMacroDefinitions } = analyzeCatFiles(filesByName);
+      const relationTypes = uniqueInOrder([
+        ...DEFAULT_MODEL_CONFIG.relationTypes,
+        ...nonMacroDefined,
+      ]);
+
+      return {
+        ...state,
+        modelConfig: normalizeModelConfig({
+          ...state.modelConfig,
+          relationTypes,
+        }),
+        catModel: {
+          filesByName,
+          analysis,
+          definitions: nonMacroDefinitions,
+          error: null,
+        },
+      };
+    });
+  },
   setNodes: (updater) =>
     set((state) => ({ nodes: applyUpdater(state.nodes, updater) })),
   setEdges: (updater) =>
@@ -314,22 +442,26 @@ export const useStore = create<StoreState>()((set, get) => ({
   resetSession: () =>
     set({
       sessionTitle: "",
+      modelConfig: createDefaultModelConfig(),
       nodes: [],
       edges: [],
       memoryEnv: createDefaultMemoryEnv(),
       selectedMemoryIds: [],
       threads: ["T0"],
       activeBranch: null,
+      catModel: { filesByName: {}, analysis: null, definitions: [], error: null },
     }),
   importSession: (snapshot) => {
     set({
       sessionTitle: snapshot.title ?? "",
+      modelConfig: normalizeModelConfig(snapshot.model ?? createDefaultModelConfig()),
       nodes: snapshot.nodes.map((node) => ({ ...node, selected: false })),
       edges: snapshot.edges.map((edge) => ({ ...edge, selected: false })),
       memoryEnv: flattenMemorySnapshot(snapshot),
       selectedMemoryIds: [],
       threads: snapshot.threads.length > 0 ? snapshot.threads : ["T0"],
       activeBranch: snapshot.activeBranch,
+      catModel: { filesByName: {}, analysis: null, definitions: [], error: null },
     });
   },
 }));

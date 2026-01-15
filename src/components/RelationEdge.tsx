@@ -258,11 +258,28 @@ const buildJaggedOrthogonalPath = (points: Point[]) => {
   return pointsToPath(simplifyPoints(jagged));
 };
 
-const relationColors: Record<RelationType, string> = {
+const coreRelationColors: Record<string, string> = {
   rf: "#0f172a",
   co: "#0284c7",
   fr: "#f97316",
   po: "#94a3b8",
+};
+
+const hashString = (value: string) => {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+};
+
+const getRelationColor = (relationType: RelationType) => {
+  const core = coreRelationColors[relationType];
+  if (core) {
+    return core;
+  }
+  const hue = hashString(relationType) % 360;
+  return `hsl(${hue} 65% 42%)`;
 };
 
 const RelationEdge = ({
@@ -298,7 +315,7 @@ const RelationEdge = ({
     ? buildJaggedOrthogonalPath(points)
     : pointsToPath(points);
 
-  const stroke = (style?.stroke as string) ?? relationColors[relationType];
+  const stroke = (style?.stroke as string) ?? getRelationColor(relationType);
   const isSelected = selected ?? false;
 
   return (

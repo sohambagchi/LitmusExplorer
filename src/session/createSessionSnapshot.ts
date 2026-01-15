@@ -14,6 +14,7 @@ export const createSessionSnapshot = ({
   nodes,
   edges,
   threads,
+  threadLabels,
   activeBranch,
 }: {
   title?: string;
@@ -22,6 +23,7 @@ export const createSessionSnapshot = ({
   nodes: TraceNode[];
   edges: RelationEdge[];
   threads: string[];
+  threadLabels?: Record<string, string>;
   activeBranch: ActiveBranch | null;
 }): SessionSnapshot => {
   const normalizedTitle = title?.trim();
@@ -31,6 +33,14 @@ export const createSessionSnapshot = ({
     shared: memoryEnv.filter((item) => item.scope === "shared"),
   };
 
+  const normalizedThreadLabels: Record<string, string> = {};
+  for (const threadId of threads) {
+    const label = threadLabels?.[threadId]?.trim();
+    if (label) {
+      normalizedThreadLabels[threadId] = label;
+    }
+  }
+
   return {
     title: normalizedTitle ? normalizedTitle : undefined,
     model: modelConfig,
@@ -38,8 +48,9 @@ export const createSessionSnapshot = ({
     nodes,
     edges,
     threads,
+    threadLabels:
+      Object.keys(normalizedThreadLabels).length > 0 ? normalizedThreadLabels : undefined,
     activeBranch,
     exportedAt: new Date().toISOString(),
   };
 };
-

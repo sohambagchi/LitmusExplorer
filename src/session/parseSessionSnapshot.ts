@@ -66,6 +66,35 @@ const parseStringArray = (value: unknown, label: string) => {
   return value as string[];
 };
 
+const parseThreadLabels = (
+  value: unknown,
+  threads: string[]
+): Record<string, string> | undefined => {
+  if (typeof value === "undefined") {
+    return undefined;
+  }
+  if (!isRecord(value)) {
+    throw new Error(`threadLabels must be an object.`);
+  }
+
+  const validThreadIds = new Set(threads);
+  const out: Record<string, string> = {};
+  for (const [threadId, label] of Object.entries(value)) {
+    if (!validThreadIds.has(threadId)) {
+      continue;
+    }
+    if (typeof label !== "string") {
+      throw new Error(`threadLabels.${threadId} must be a string.`);
+    }
+    const trimmed = label.trim();
+    if (trimmed) {
+      out[threadId] = trimmed;
+    }
+  }
+
+  return Object.keys(out).length > 0 ? out : undefined;
+};
+
 const parseIdentifier = (value: unknown, label: string) => {
   const raw = parseString(value, label).trim();
   if (!raw) {
@@ -393,6 +422,7 @@ export const parseSessionSnapshot = (value: unknown): SessionSnapshot => {
     (threadId) => !threadsWithFallback.includes(threadId)
   );
   const normalizedThreads = [...threadsWithFallback, ...missingThreadIds];
+  const threadLabels = parseThreadLabels(value.threadLabels, normalizedThreads);
 
   const activeBranch = parseActiveBranch(value.activeBranch);
   const exportedAt =
@@ -405,6 +435,7 @@ export const parseSessionSnapshot = (value: unknown): SessionSnapshot => {
     nodes,
     edges,
     threads: normalizedThreads,
+    threadLabels,
     activeBranch,
     exportedAt,
   };

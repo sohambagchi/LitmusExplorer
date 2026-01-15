@@ -117,6 +117,8 @@ export type SessionMemorySnapshot = {
   shared: MemoryVariable[];
 };
 
+export type ThreadLabels = Record<string, string>;
+
 export type SessionSnapshot = {
   title?: string;
   model?: SessionModelConfig;
@@ -124,6 +126,7 @@ export type SessionSnapshot = {
   nodes: TraceNode[];
   edges: RelationEdge[];
   threads: string[];
+  threadLabels?: ThreadLabels;
   activeBranch: ActiveBranch | null;
   exportedAt?: string;
 };

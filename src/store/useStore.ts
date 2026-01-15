@@ -57,6 +57,7 @@ type StoreState = {
   memoryEnv: MemoryVariable[];
   selectedMemoryIds: string[];
   threads: string[];
+  threadLabels: Record<string, string>;
   activeBranch: ActiveBranch | null;
   edgeLabelMode: "all" | "nonPo" | "off";
   focusedEdgeLabelId: string | null;
@@ -85,6 +86,7 @@ type StoreState = {
   groupSelectedIntoStruct: () => void;
   setThreads: (threads: string[]) => void;
   addThread: () => string;
+  setThreadLabel: (threadId: string, label: string) => void;
   setActiveBranch: (branch: ActiveBranch | null) => void;
   cycleEdgeLabelMode: () => void;
   setFocusedEdgeLabelId: (edgeId: string | null) => void;
@@ -174,6 +176,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   memoryEnv: createDefaultMemoryEnv(),
   selectedMemoryIds: [],
   threads: ["T0"],
+  threadLabels: {},
   activeBranch: null,
   edgeLabelMode: "nonPo",
   focusedEdgeLabelId: null,
@@ -315,7 +318,7 @@ export const useStore = create<StoreState>()((set, get) => ({
     get().validateGraph();
   },
   deleteThread: (threadId) => {
-    const { nodes, edges, threads, activeBranch } = get();
+    const { nodes, edges, threads, threadLabels, activeBranch } = get();
     const nodeIdsToDelete = new Set(
       nodes.filter((node) => node.data.threadId === threadId).map((node) => node.id)
     );
@@ -367,11 +370,23 @@ export const useStore = create<StoreState>()((set, get) => ({
     });
 
     const normalizedThreads = orderedThreadIds.map((_id, index) => `T${index}`);
+    const normalizedThreadLabels: Record<string, string> = {};
+    for (const [previousId, label] of Object.entries(threadLabels)) {
+      if (previousId === threadId) {
+        continue;
+      }
+      const nextId = threadIdMap.get(previousId);
+      if (!nextId) {
+        continue;
+      }
+      normalizedThreadLabels[nextId] = label;
+    }
 
     set({
       nodes: normalizedNodes,
       edges: nextEdges,
       threads: normalizedThreads,
+      threadLabels: normalizedThreadLabels,
       activeBranch: activeBranch && nodeIdsToDelete.has(activeBranch.branchId) ? null : activeBranch,
     });
 
@@ -493,13 +508,40 @@ export const useStore = create<StoreState>()((set, get) => ({
       selectedMemoryIds: [],
     });
   },
-  setThreads: (threads) => set({ threads }),
+  setThreads: (threads) =>
+    set((state) => {
+      const validThreads = new Set(threads);
+      const nextLabels: Record<string, string> = {};
+      for (const [threadId, label] of Object.entries(state.threadLabels)) {
+        if (validThreads.has(threadId)) {
+          nextLabels[threadId] = label;
+        }
+      }
+      return { threads, threadLabels: nextLabels };
+    }),
   addThread: () => {
     const currentThreads = get().threads;
     const nextId = getNextThreadId(currentThreads);
     set({ threads: [...currentThreads, nextId] });
     return nextId;
   },
+  setThreadLabel: (threadId, label) =>
+    set((state) => {
+      const trimmed = label.trim();
+      const nextLabels = { ...state.threadLabels };
+      if (!trimmed) {
+        if (!Object.prototype.hasOwnProperty.call(nextLabels, threadId)) {
+          return state;
+        }
+        delete nextLabels[threadId];
+        return { threadLabels: nextLabels };
+      }
+      if (nextLabels[threadId] === trimmed) {
+        return state;
+      }
+      nextLabels[threadId] = trimmed;
+      return { threadLabels: nextLabels };
+    }),
   setActiveBranch: (branch) => set({ activeBranch: branch }),
   validateGraph: () => {
     // Flag read-from edges that point backward within a thread's sequence.
@@ -554,10 +596,20 @@ export const useStore = create<StoreState>()((set, get) => ({
       memoryEnv: createDefaultMemoryEnv(),
       selectedMemoryIds: [],
       threads: ["T0"],
+      threadLabels: {},
       activeBranch: null,
       catModel: { filesByName: {}, analysis: null, definitions: [], error: null },
     }),
   importSession: (snapshot) => {
+    const nextThreads = snapshot.threads.length > 0 ? snapshot.threads : ["T0"];
+    const nextThreadLabels: Record<string, string> = {};
+    for (const threadId of nextThreads) {
+      const label = snapshot.threadLabels?.[threadId]?.trim();
+      if (label) {
+        nextThreadLabels[threadId] = label;
+      }
+    }
+
     set({
       sessionTitle: snapshot.title ?? "",
       modelConfig: normalizeModelConfig(snapshot.model ?? createDefaultModelConfig()),
@@ -565,7 +617,8 @@ export const useStore = create<StoreState>()((set, get) => ({
       edges: snapshot.edges.map((edge) => ({ ...edge, selected: false })),
       memoryEnv: flattenMemorySnapshot(snapshot),
       selectedMemoryIds: [],
-      threads: snapshot.threads.length > 0 ? snapshot.threads : ["T0"],
+      threads: nextThreads,
+      threadLabels: nextThreadLabels,
       activeBranch: snapshot.activeBranch,
       catModel: { filesByName: {}, analysis: null, definitions: [], error: null },
     });

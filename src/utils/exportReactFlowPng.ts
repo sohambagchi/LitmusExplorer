@@ -8,6 +8,163 @@ const downloadDataUrl = (dataUrl: string, filename: string) => {
   link.click();
 };
 
+const THREAD_HEADER_PADDING_Y = 14;
+const THREAD_HEADER_PILL_HEIGHT = 26;
+const THREAD_HEADER_PILL_RADIUS = 13;
+const THREAD_HEADER_FONT =
+  '600 13px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial';
+
+/**
+ * Loads a PNG data URL into an `HTMLImageElement`, ready for drawing to a canvas.
+ * @param dataUrl `data:image/png;base64,...` URL from `html-to-image`.
+ */
+const loadPngDataUrl = async (dataUrl: string): Promise<HTMLImageElement> => {
+  const image = new Image();
+  image.src = dataUrl;
+  await image.decode();
+  return image;
+};
+
+/**
+ * Draws a rounded rectangle path into a 2D canvas context.
+ * @param ctx Canvas 2D context.
+ * @param x Left position (CSS pixels).
+ * @param y Top position (CSS pixels).
+ * @param width Rectangle width (CSS pixels).
+ * @param height Rectangle height (CSS pixels).
+ * @param radius Corner radius (CSS pixels).
+ */
+const drawRoundedRect = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number
+) => {
+  const cappedRadius = Math.max(0, Math.min(radius, width / 2, height / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + cappedRadius, y);
+  ctx.arcTo(x + width, y, x + width, y + height, cappedRadius);
+  ctx.arcTo(x + width, y + height, x, y + height, cappedRadius);
+  ctx.arcTo(x, y + height, x, y, cappedRadius);
+  ctx.arcTo(x, y, x + width, y, cappedRadius);
+  ctx.closePath();
+};
+
+/**
+ * Truncates a label so it fits within the available width (adds ellipsis when needed).
+ * @param ctx Canvas 2D context configured with the desired font.
+ * @param label Original label.
+ * @param maxWidth Maximum label width in CSS pixels.
+ */
+const truncateTextToWidth = (
+  ctx: CanvasRenderingContext2D,
+  label: string,
+  maxWidth: number
+) => {
+  const trimmed = label.trim();
+  if (!trimmed) {
+    return "";
+  }
+  if (maxWidth <= 0) {
+    return "";
+  }
+  if (ctx.measureText(trimmed).width <= maxWidth) {
+    return trimmed;
+  }
+
+  const ellipsis = "…";
+  const ellipsisWidth = ctx.measureText(ellipsis).width;
+  if (ellipsisWidth > maxWidth) {
+    return "";
+  }
+
+  let low = 0;
+  let high = trimmed.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    const candidate = `${trimmed.slice(0, mid)}${ellipsis}`;
+    if (ctx.measureText(candidate).width <= maxWidth) {
+      low = mid;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  return `${trimmed.slice(0, low)}${ellipsis}`;
+};
+
+/**
+ * Draws a thread header row at the top of the exported image, centered to each lane.
+ * @param ctx Canvas 2D context (already scaled for `pixelRatio`).
+ * @param width Export width in CSS pixels.
+ * @param threads Thread IDs in display order.
+ * @param threadLabels Optional user labels keyed by thread ID.
+ * @param threadCenters Optional lane centers in React Flow coordinates (same space as `nodes`).
+ * @param laneWidth Lane width in React Flow coordinates.
+ * @param viewport Export viewport transform, matching the rendered PNG.
+ */
+const drawThreadHeaderAligned = ({
+  ctx,
+  width,
+  threads,
+  threadLabels,
+  threadCenters,
+  laneWidth,
+  viewport,
+}: {
+  ctx: CanvasRenderingContext2D;
+  width: number;
+  threads: string[];
+  threadLabels?: Record<string, string>;
+  threadCenters?: Record<string, number>;
+  laneWidth: number;
+  viewport: { x: number; y: number; zoom: number };
+}) => {
+  const pillPaddingX = 12;
+  const y = THREAD_HEADER_PADDING_Y;
+
+  ctx.font = THREAD_HEADER_FONT;
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "center";
+
+  threads.forEach((threadId, index) => {
+    const rawLabel = threadLabels?.[threadId]?.trim();
+    const label = rawLabel ? rawLabel : threadId;
+
+    const centerWorld =
+      typeof threadCenters?.[threadId] === "number"
+        ? threadCenters[threadId]
+        : index * laneWidth + laneWidth / 2;
+    const centerX = centerWorld * viewport.zoom + viewport.x;
+
+    const laneWidthPx = laneWidth * viewport.zoom;
+    const maxPillWidth = Math.max(48, laneWidthPx - 16);
+    const maxTextWidth = Math.max(0, maxPillWidth - pillPaddingX * 2);
+    const truncated = truncateTextToWidth(ctx, label, maxTextWidth);
+    const measuredWidth = Math.ceil(ctx.measureText(truncated).width);
+    const pillWidth = Math.min(maxPillWidth, measuredWidth + pillPaddingX * 2);
+
+    const x = Math.max(6, Math.min(width - pillWidth - 6, centerX - pillWidth / 2));
+    const textX = x + pillWidth / 2;
+
+    ctx.fillStyle = "rgba(15, 23, 42, 0.92)";
+    drawRoundedRect(
+      ctx,
+      x,
+      y,
+      pillWidth,
+      THREAD_HEADER_PILL_HEIGHT,
+      THREAD_HEADER_PILL_RADIUS
+    );
+    ctx.fill();
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(truncated, textX, y + THREAD_HEADER_PILL_HEIGHT / 2);
+  });
+};
+
 /**
  * Exports a React Flow viewport element to a PNG and triggers a download.
  * @param viewportElement `.react-flow__viewport` element to render.
@@ -17,6 +174,7 @@ const downloadDataUrl = (dataUrl: string, filename: string) => {
  * @param padding Extra padding around the exported content, in px.
  * @param backgroundColor Background color used for the export.
  * @param pixelRatio Device pixel ratio multiplier (higher = sharper, bigger file).
+ * @param threadHeader Optional header row listing threads at the top of the export.
  */
 export const exportReactFlowViewportToPng = async ({
   viewportElement,
@@ -26,6 +184,7 @@ export const exportReactFlowViewportToPng = async ({
   padding = 48,
   backgroundColor = "#ffffff",
   pixelRatio = 2,
+  threadHeader,
 }: {
   viewportElement: HTMLElement;
   nodes: Node[];
@@ -34,6 +193,12 @@ export const exportReactFlowViewportToPng = async ({
   padding?: number;
   backgroundColor?: string;
   pixelRatio?: number;
+  threadHeader?: {
+    threads: string[];
+    threadLabels?: Record<string, string>;
+    threadCenters?: Record<string, number>;
+    laneWidth?: number;
+  };
 }) => {
   if (nodes.length === 0) {
     throw new Error("Nothing to export.");
@@ -59,5 +224,44 @@ export const exportReactFlowViewportToPng = async ({
     },
   });
 
-  downloadDataUrl(dataUrl, filename);
+  if (!threadHeader || threadHeader.threads.length === 0) {
+    downloadDataUrl(dataUrl, filename);
+    return;
+  }
+
+  // Compose a final PNG with a thread header above the exported viewport.
+  const viewportImage = await loadPngDataUrl(dataUrl);
+  const canvas = document.createElement("canvas");
+  canvas.width = width * pixelRatio;
+  const headerHeight = THREAD_HEADER_PADDING_Y * 2 + THREAD_HEADER_PILL_HEIGHT;
+  canvas.height = (height + headerHeight) * pixelRatio;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    downloadDataUrl(dataUrl, filename);
+    return;
+  }
+
+  ctx.scale(pixelRatio, pixelRatio);
+  ctx.fillStyle = backgroundColor;
+  ctx.fillRect(0, 0, width, height + headerHeight);
+
+  drawThreadHeaderAligned({
+    ctx,
+    width,
+    threads: threadHeader.threads,
+    threadLabels: threadHeader.threadLabels,
+    threadCenters: threadHeader.threadCenters,
+    laneWidth: threadHeader.laneWidth ?? 260,
+    viewport,
+  });
+
+  ctx.drawImage(viewportImage, 0, headerHeight, width, height);
+  ctx.strokeStyle = "rgba(148, 163, 184, 0.7)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, headerHeight);
+  ctx.lineTo(width, headerHeight);
+  ctx.stroke();
+
+  downloadDataUrl(canvas.toDataURL("image/png"), filename);
 };

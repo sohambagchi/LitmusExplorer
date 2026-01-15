@@ -39,8 +39,16 @@ import { exportReactFlowViewportToPng } from "../utils/exportReactFlowPng";
 import { Trash2 } from "lucide-react";
 
 const LANE_WIDTH = 260;
-const LANE_LABEL_HEIGHT = 64;
+const LANE_LABEL_HEIGHT = 80;
 const GRID_Y = 80;
+// Keep the header row clear of the first operation row (seq 1 renders at `GRID_Y`).
+// Shift the React Flow content down so edges/nodes don't render underneath the
+// header overlay, with a bit of extra clearance for orthogonal edge turns.
+const CANVAS_HEADER_CLEARANCE = 20;
+const CANVAS_CONTENT_TOP_OFFSET = Math.max(
+  0,
+  LANE_LABEL_HEIGHT - GRID_Y + CANVAS_HEADER_CLEARANCE
+);
 const MIN_SEQUENCE_INDEX = 1;
 const MAX_CANVAS_Y = 200_000;
 const PAN_SPEED = 1;
@@ -231,11 +239,15 @@ const LaneLabelsOverlay = ({
   nextThreadId,
   nodeCountsByThread,
   onRequestDeleteThread,
+  threadLabels,
+  onSetThreadLabel,
 }: {
   threads: string[];
   nextThreadId: string;
   nodeCountsByThread: Map<string, number>;
   onRequestDeleteThread: (threadId: string) => void;
+  threadLabels: Record<string, string>;
+  onSetThreadLabel: (threadId: string, label: string) => void;
 }) => (
   <div
     className="pointer-events-none absolute inset-x-0 top-0 z-20 flex border-b border-slate-200 bg-slate-100/85"
@@ -244,26 +256,45 @@ const LaneLabelsOverlay = ({
     {threads.map((threadId, index) => (
       <div
         key={`${threadId}-${index}`}
-        className="relative flex items-center justify-center border-r border-slate-200"
+        className="relative flex items-start justify-center border-r border-slate-200 p-1.5"
         style={{ width: LANE_WIDTH }}
       >
-        <div className="pointer-events-auto flex items-center gap-1 rounded bg-slate-900 px-2 py-1 text-[10px] font-semibold text-white">
-          <span>{threadId}</span>
-          <button
-            type="button"
-            className="rounded bg-white/10 px-1 py-0.5 text-[10px] font-semibold text-white hover:bg-white/20"
+        <div className="pointer-events-auto w-full max-w-[220px] rounded-md border border-slate-800 bg-slate-900/95 p-1 text-white shadow-sm">
+          <div className="flex h-5 items-center justify-between gap-2">
+            <div className="flex h-5 items-center rounded border border-white/10 bg-white/5 px-2 text-[11px] font-semibold leading-none text-white">
+              {threadId}
+            </div>
+            <button
+              type="button"
+              className="flex h-5 w-5 items-center justify-center rounded border border-white/10 bg-white/5 text-[11px] font-semibold leading-none text-white hover:bg-white/10"
+              onMouseDown={(event) => {
+                event.stopPropagation();
+              }}
+              onClick={(event) => {
+                event.stopPropagation();
+                onRequestDeleteThread(threadId);
+              }}
+              title={`Delete ${threadId} (${nodeCountsByThread.get(threadId) ?? 0} nodes)`}
+              aria-label={`Delete ${threadId}`}
+            >
+              ✕
+            </button>
+          </div>
+          <input
+            value={threadLabels[threadId] ?? ""}
+            placeholder="Label"
+            className="mt-1.5 h-7 w-full rounded border border-white/10 bg-white/5 px-2 text-[13px] font-semibold text-white placeholder:text-white/50 focus:border-white/20 focus:outline-none"
             onMouseDown={(event) => {
               event.stopPropagation();
             }}
             onClick={(event) => {
               event.stopPropagation();
-              onRequestDeleteThread(threadId);
             }}
-            title={`Delete ${threadId} (${nodeCountsByThread.get(threadId) ?? 0} nodes)`}
-            aria-label={`Delete ${threadId}`}
-          >
-            ✕
-          </button>
+            onChange={(event) => {
+              onSetThreadLabel(threadId, event.target.value);
+            }}
+            aria-label={`Label for ${threadId}`}
+          />
         </div>
       </div>
     ))}
@@ -285,11 +316,13 @@ const EditorCanvas = () => {
   const memoryEnv = useStore((state) => state.memoryEnv);
   const selectedMemoryIds = useStore((state) => state.selectedMemoryIds);
   const threads = useStore((state) => state.threads);
+  const threadLabels = useStore((state) => state.threadLabels);
   const setNodes = useStore((state) => state.setNodes);
   const onEdgesChange = useStore((state) => state.onEdgesChange);
   const setEdges = useStore((state) => state.setEdges);
   const addThread = useStore((state) => state.addThread);
   const deleteThread = useStore((state) => state.deleteThread);
+  const setThreadLabel = useStore((state) => state.setThreadLabel);
   const addMemoryVar = useStore((state) => state.addMemoryVar);
   const updateMemoryVar = useStore((state) => state.updateMemoryVar);
   const deleteMemoryVar = useStore((state) => state.deleteMemoryVar);
@@ -806,11 +839,18 @@ const EditorCanvas = () => {
 
     setIsExporting(true);
     try {
+      const nodesForExport = flow.getNodes();
+
       await exportReactFlowViewportToPng({
         viewportElement,
-        nodes: flow.getNodes(),
+        nodes: nodesForExport,
         filename,
         nodeOrigin: CANVAS_NODE_ORIGIN,
+        threadHeader: {
+          threads: threadsForLayout,
+          threadLabels,
+          laneWidth: LANE_WIDTH,
+        },
       });
     } catch (error) {
       const message =
@@ -819,7 +859,7 @@ const EditorCanvas = () => {
     } finally {
       setIsExporting(false);
     }
-  }, [sessionTitle]);
+  }, [sessionTitle, threadLabels, threadsForLayout]);
 
   const handleAddThread = useCallback(() => {
     addThread();
@@ -1248,75 +1288,82 @@ const EditorCanvas = () => {
       </div>
       <div className="flex min-h-0 flex-1 flex-col bg-slate-100">
         <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
-          <div
-            className="relative h-full"
-            style={{ width: canvasWidth }}
-            onWheelCapture={handleWheelPan}
-            ref={reactFlowWrapperRef}
-          >
-            <LaneBackgroundOverlay
-              threads={threadsForLayout}
-            />
-            <ReactFlow
-              nodes={visibleNodes.map((node) => ({
-                ...node,
-                position: transposeXY(node.position),
-              }))}
-              edges={edgesToRenderWithArrows}
-              nodeTypes={nodeTypes}
-              edgeTypes={edgeTypes}
-              nodeOrigin={CANVAS_NODE_ORIGIN}
-              connectionLineType={ConnectionLineType.Step}
-              panOnDrag={false}
-              zoomOnScroll={false}
-              translateExtent={translateExtent}
-              nodeExtent={translateExtent}
-              snapToGrid={false}
-              nodesDraggable={!isLocked}
-              nodesConnectable={!isLocked}
-              onNodesChange={handleNodesChange}
-              onEdgesChange={onEdgesChange}
-              onEdgeClick={(_event, edge) => {
-                if (edgeLabelMode !== "off") {
-                  return;
-                }
-                setFocusedEdgeLabelId(
-                  focusedEdgeLabelId === edge.id ? null : edge.id
-                );
-              }}
-              onPaneClick={() => {
-                if (edgeLabelMode !== "off") {
-                  return;
-                }
-                setFocusedEdgeLabelId(null);
-              }}
-              onNodeDragStop={handleNodeDragStop}
-              onConnect={handleConnect}
-              onDrop={handleDrop}
-              onDragOver={handleDragOver}
-              onInit={(instance) => {
-                reactFlowInstance.current = instance;
-              }}
-              deleteKeyCode={["Backspace", "Delete"]}
-              className="relative z-10"
-              style={{
-                width: "100%",
-                height: "100%",
-                background: "transparent",
-              }}
-            >
-              <Background
-                id="timeline-grid"
-                gap={[LANE_WIDTH, GRID_Y]}
-                color="rgba(148, 163, 184, 0.35)"
-                variant={BackgroundVariant.Lines}
-              />
-            </ReactFlow>
-            <LaneLabelsOverlay
-              threads={threadsForLayout}
-              nextThreadId={nextThreadId}
-              nodeCountsByThread={nodeCountsByThread}
+	          <div
+	            className="relative h-full"
+	            style={{ width: canvasWidth }}
+	            onWheelCapture={handleWheelPan}
+	            ref={reactFlowWrapperRef}
+	          >
+	            <div
+	              className="absolute inset-x-0 bottom-0"
+	              style={{ top: CANVAS_CONTENT_TOP_OFFSET }}
+	            >
+	              <div className="relative h-full">
+	                <LaneBackgroundOverlay threads={threadsForLayout} />
+	                <ReactFlow
+	                  nodes={visibleNodes.map((node) => ({
+	                    ...node,
+	                    position: transposeXY(node.position),
+	                  }))}
+	                  edges={edgesToRenderWithArrows}
+	                  nodeTypes={nodeTypes}
+	                  edgeTypes={edgeTypes}
+	                  nodeOrigin={CANVAS_NODE_ORIGIN}
+	                  connectionLineType={ConnectionLineType.Step}
+	                  panOnDrag={false}
+	                  zoomOnScroll={false}
+	                  translateExtent={translateExtent}
+	                  nodeExtent={translateExtent}
+	                  snapToGrid={false}
+	                  nodesDraggable={!isLocked}
+	                  nodesConnectable={!isLocked}
+	                  onNodesChange={handleNodesChange}
+	                  onEdgesChange={onEdgesChange}
+	                  onEdgeClick={(_event, edge) => {
+	                    if (edgeLabelMode !== "off") {
+	                      return;
+	                    }
+	                    setFocusedEdgeLabelId(
+	                      focusedEdgeLabelId === edge.id ? null : edge.id
+	                    );
+	                  }}
+	                  onPaneClick={() => {
+	                    if (edgeLabelMode !== "off") {
+	                      return;
+	                    }
+	                    setFocusedEdgeLabelId(null);
+	                  }}
+	                  onNodeDragStop={handleNodeDragStop}
+	                  onConnect={handleConnect}
+	                  onDrop={handleDrop}
+	                  onDragOver={handleDragOver}
+	                  onInit={(instance) => {
+	                    reactFlowInstance.current = instance;
+	                  }}
+	                  deleteKeyCode={["Backspace", "Delete"]}
+	                  className="relative z-10"
+	                  style={{
+	                    width: "100%",
+	                    height: "100%",
+	                    background: "transparent",
+	                  }}
+	                >
+	                  <Background
+	                    id="timeline-grid"
+	                    gap={[LANE_WIDTH, GRID_Y]}
+	                    color="rgba(148, 163, 184, 0.35)"
+	                    variant={BackgroundVariant.Lines}
+	                  />
+	                </ReactFlow>
+	              </div>
+	            </div>
+	            <LaneLabelsOverlay
+	              threads={threadsForLayout}
+	              nextThreadId={nextThreadId}
+	              nodeCountsByThread={nodeCountsByThread}
               onRequestDeleteThread={requestDeleteThread}
+              threadLabels={threadLabels}
+              onSetThreadLabel={setThreadLabel}
             />
             <ConfirmDialog
               open={pendingMemoryDelete !== null}

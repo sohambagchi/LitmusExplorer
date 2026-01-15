@@ -129,6 +129,7 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
   const edges = useStore((state) => state.edges);
   const setEdges = useStore((state) => state.setEdges);
   const threads = useStore((state) => state.threads);
+  const threadLabels = useStore((state) => state.threadLabels);
   const memoryEnv = useStore((state) => state.memoryEnv);
   const activeBranch = useStore((state) => state.activeBranch);
   const deleteNode = useStore((state) => state.deleteNode);
@@ -288,6 +289,7 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
         nodes,
         edges,
         threads,
+        threadLabels,
         activeBranch,
       });
       const blob = new Blob([JSON.stringify(snapshot, null, 2)], {
@@ -302,7 +304,16 @@ const Sidebar = ({ onNewSession }: SidebarProps) => {
       link.click();
       URL.revokeObjectURL(url);
     },
-    [activeBranch, edges, memoryEnv, modelConfig, nodes, setSessionTitle, threads]
+    [
+      activeBranch,
+      edges,
+      memoryEnv,
+      modelConfig,
+      nodes,
+      setSessionTitle,
+      threadLabels,
+      threads,
+    ]
   );
 
   const handleExportSession = useCallback(() => {

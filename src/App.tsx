@@ -22,7 +22,7 @@ const defaultSessionSnapshot = (() => {
 })();
 
 const App = () => {
-  const [sharedSessionId] = useState(() => {
+  const [sharedSessionId, setSharedSessionId] = useState<string | null>(() => {
     if (typeof window === "undefined") {
       return null;
     }
@@ -43,6 +43,7 @@ const App = () => {
   const activeBranch = useStore((state) => state.activeBranch);
   const importSession = useStore((state) => state.importSession);
   const seeded = useRef(false);
+  const sharedLoadVersion = useRef(0);
   const [shareNamingOpen, setShareNamingOpen] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [shareLoading, setShareLoading] = useState(false);
@@ -55,6 +56,23 @@ const App = () => {
   const [sharedLoadPending, setSharedLoadPending] = useState(() =>
     Boolean(sharedSessionId)
   );
+
+  /**
+   * Clears any shared-session UUID from the URL without reloading the page.
+   * This deliberately does not navigate to `/` via `location.assign`, because
+   * that would trigger the default litmus seed on a fresh load.
+   */
+  const handleNewSession = useCallback(() => {
+    seeded.current = true;
+    sharedLoadVersion.current += 1;
+    setSharedSessionId(null);
+    setSharedLoadPending(false);
+    setSharedLoadError(null);
+
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", "/");
+    }
+  }, []);
 
   const shareSession = useCallback(
     async (title: string) => {
@@ -112,6 +130,7 @@ const App = () => {
       return;
     }
 
+    const loadVersion = (sharedLoadVersion.current += 1);
     let active = true;
     setSharedLoadPending(true);
     setSharedLoadError(null);
@@ -120,13 +139,13 @@ const App = () => {
       try {
         const shared = await fetchSharedSnapshot(sharedSessionId);
         const parsed = parseSessionSnapshot(shared);
-        if (!active) {
+        if (!active || sharedLoadVersion.current !== loadVersion) {
           return;
         }
         importSession(parsed);
         setSharedLoadPending(false);
       } catch (error) {
-        if (!active) {
+        if (!active || sharedLoadVersion.current !== loadVersion) {
           return;
         }
         setSharedLoadError(
@@ -160,7 +179,7 @@ const App = () => {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-100 text-slate-900">
-      <Sidebar />
+      <Sidebar onNewSession={handleNewSession} />
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-3">
           <div>

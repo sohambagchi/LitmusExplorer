@@ -26,6 +26,14 @@ import RelationDefinitionsDialog from "./RelationDefinitionsDialog";
 import TutorialDialog from "./TutorialDialog";
 import { Trash2 } from "lucide-react";
 
+type SidebarProps = {
+  /**
+   * Optional hook for parent components to run additional reset logic.
+   * Used to clear any shared-session URL state before wiping the local graph.
+   */
+  onNewSession?: () => void;
+};
+
 type ToolboxItem = {
   label: string;
   type: OperationType;
@@ -101,7 +109,7 @@ const formatMemoryLabel = (
   return `${parentName}.${name}`;
 };
 
-const Sidebar = () => {
+const Sidebar = ({ onNewSession }: SidebarProps) => {
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     if (typeof window === "undefined") {
       return 520;
@@ -144,6 +152,15 @@ const Sidebar = () => {
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [relationDialogOpen, setRelationDialogOpen] = useState(false);
   const [tutorialDialogOpen, setTutorialDialogOpen] = useState(false);
+
+  /**
+   * Starts a blank session and lets the parent clear any UUID from the URL.
+   * Order matters: clear URL/shared-session state first, then wipe the store.
+   */
+  const handleNewSession = useCallback(() => {
+    onNewSession?.();
+    resetSession();
+  }, [onNewSession, resetSession]);
 
   const selectedNode = useMemo(
     () => nodes.find((node) => node.selected),
@@ -595,7 +612,7 @@ const Sidebar = () => {
           <button
             type="button"
             className="w-full rounded border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-800"
-            onClick={resetSession}
+            onClick={handleNewSession}
           >
             New Session
           </button>

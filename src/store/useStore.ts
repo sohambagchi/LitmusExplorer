@@ -132,6 +132,14 @@ type StoreState = {
   clearMemorySelection: () => void;
   groupSelectedIntoStruct: () => void;
   /**
+   * Renumber local integer registers (`r{n}`) into a compact sequence (`r0`, `r1`, ...).
+   *
+   * Notes:
+   * - Only top-level local variables whose names match `r{number}` are renamed.
+   * - Memory ids are unchanged, so nodes referencing these registers automatically update.
+   */
+  resetLocalRegisters: () => void;
+  /**
    * Updates the explicit thread ordering and realigns every node to the lane centers
    * implied by that ordering.
    *
@@ -1009,6 +1017,41 @@ export const useStore = create<StoreState>()((set, get) => ({
       selectedMemoryIds: [],
     });
   },
+  resetLocalRegisters: () =>
+    set((state) => {
+      /**
+       * We treat "registers" as top-level locals whose name is `r{n}`.
+       * Resetting compacts them to `r0..r{n-1}` while preserving relative order.
+       */
+      const renameById = new Map<string, string>();
+      let nextIndex = 0;
+
+      for (const variable of state.memoryEnv) {
+        if (variable.scope !== "locals" || variable.parentId) {
+          continue;
+        }
+        const trimmed = variable.name.trim();
+        if (!/^r\d+$/.test(trimmed)) {
+          continue;
+        }
+        const nextName = `r${nextIndex}`;
+        nextIndex += 1;
+        if (trimmed !== nextName) {
+          renameById.set(variable.id, nextName);
+        }
+      }
+
+      if (renameById.size === 0) {
+        return state;
+      }
+
+      return {
+        memoryEnv: state.memoryEnv.map((variable) => {
+          const nextName = renameById.get(variable.id);
+          return nextName ? { ...variable, name: nextName } : variable;
+        }),
+      };
+    }),
   setThreads: (threads) =>
     set((state) => {
       /**

@@ -37,7 +37,7 @@ import { createBranchGroupCondition } from "../utils/branchConditionFactory";
 import { evaluateBranchCondition } from "../utils/branchEvaluation";
 import ConfirmDialog from "./ConfirmDialog";
 import { exportReactFlowViewportToPng } from "../utils/exportReactFlowPng";
-import { ChevronDown, ChevronUp, Copy, Info, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Copy, Info, RotateCcw, Trash2 } from "lucide-react";
 import { createUuid } from "../utils/createUuid";
 import { resolvePointerTargetById } from "../utils/resolvePointers";
 import VisualKeyDialog from "./VisualKeyDialog";
@@ -528,6 +528,7 @@ const EditorCanvas = () => {
   const groupSelectedIntoStruct = useStore(
     (state) => state.groupSelectedIntoStruct
   );
+  const resetLocalRegisters = useStore((state) => state.resetLocalRegisters);
   const validateGraph = useStore((state) => state.validateGraph);
   const edgeLabelMode = useStore((state) => state.edgeLabelMode);
   const focusedEdgeLabelId = useStore((state) => state.focusedEdgeLabelId);
@@ -1326,6 +1327,31 @@ const EditorCanvas = () => {
     return selectedTopLevel[0]?.scope ?? null;
   }, [memoryEnv, selectedMemoryIds]);
 
+  const canResetLocalRegisters = useMemo(() => {
+    /**
+     * Enable reset only when at least one numbered `r{n}` register exists and at least
+     * one of them isn't already in the compact `r0..r{n-1}` sequence.
+     */
+    let expectedIndex = 0;
+
+    for (const item of memoryEnv) {
+      if (item.scope !== "locals" || item.parentId) {
+        continue;
+      }
+      const trimmed = item.name.trim();
+      if (!/^r\d+$/.test(trimmed)) {
+        continue;
+      }
+      const expectedName = `r${expectedIndex}`;
+      if (trimmed !== expectedName) {
+        return true;
+      }
+      expectedIndex += 1;
+    }
+
+    return false;
+  }, [memoryEnv]);
+
   const memoryTypeButtonBase =
     "inline-flex h-7 w-7 items-center justify-center rounded border text-[11px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-1";
   const memoryTypeButtonLight =
@@ -2039,6 +2065,15 @@ const EditorCanvas = () => {
                             aria-label="Add pointer register"
                           >
                             +&
+                          </button>
+                          <button
+                            type="button"
+                            className={`${memoryTypeButtonBase} ${memoryTypeButtonDark}`}
+                            onClick={resetLocalRegisters}
+                            disabled={!canResetLocalRegisters}
+                            aria-label="Reset local r registers"
+                          >
+                            <RotateCcw className="h-4 w-4" aria-hidden="true" />
                           </button>
                         </>
                       ) : (

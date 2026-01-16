@@ -11,7 +11,6 @@ import type {
   BranchCondition,
   BranchGroupCondition,
   MemoryOrder,
-  MemoryType,
   MemoryVariable,
   OperationType,
   RelationType,
@@ -95,12 +94,6 @@ const TOOLBOX_ITEMS: ToolboxItem[] = [
     nodeType: "operation",
     className: "border-lime-300 bg-gradient-to-br from-lime-50 to-emerald-100",
   },
-];
-
-const MEMORY_ITEMS: { label: string; type: MemoryType }[] = [
-  { label: "int", type: "int" },
-  { label: "array", type: "array" },
-  { label: "ptr", type: "ptr" },
 ];
 
 const formatRelationTypeLabel = (relationType: RelationType) => {
@@ -258,10 +251,6 @@ const Sidebar = ({
   const importCatFiles = useStore((state) => state.importCatFiles);
   const removeCatFile = useStore((state) => state.removeCatFile);
   const catModel = useStore((state) => state.catModel);
-  const selectedMemoryIds = useStore((state) => state.selectedMemoryIds);
-  const groupSelectedIntoStruct = useStore(
-    (state) => state.groupSelectedIntoStruct
-  );
   const sessionFileInputRef = useRef<HTMLInputElement | null>(null);
   const catFileInputRef = useRef<HTMLInputElement | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
@@ -383,14 +372,6 @@ const Sidebar = ({
       return;
     }
     deleteNode(selectedNode.id);
-  };
-
-  const handleMemoryDragStart = (
-    event: DragEvent<HTMLDivElement>,
-    type: MemoryType
-  ) => {
-    event.dataTransfer.setData("application/litmus-memory", type);
-    event.dataTransfer.effectAllowed = "copy";
   };
 
   const exportSession = useCallback(
@@ -556,24 +537,7 @@ const Sidebar = ({
     );
 
     await handleImportCatFiles(files);
-  }, [handleImportCatFiles]);
-
-  const selectedMemoryItems = useMemo(
-    () =>
-      memoryEnv.filter(
-        (item) =>
-          selectedMemoryIds.includes(item.id) &&
-          item.type !== "struct" &&
-          !item.parentId
-      ),
-    [memoryEnv, selectedMemoryIds]
-  );
-  const canGroupStruct = useMemo(() => {
-    if (selectedMemoryItems.length < 2) {
-      return false;
-    }
-    return new Set(selectedMemoryItems.map((item) => item.scope)).size === 1;
-  }, [selectedMemoryItems]);
+	  }, [handleImportCatFiles]);
 
   const memoryOptions = useMemo(() => {
     const memoryById = new Map(memoryEnv.map((item) => [item.id, item]));
@@ -1204,53 +1168,15 @@ const Sidebar = ({
         onClose={() => setRelationDialogOpen(false)}
       />
 
-      <TutorialDialog
-        open={tutorialDialogOpen}
-        onClose={() => setTutorialDialogOpen(false)}
-      />
+	      <TutorialDialog
+	        open={tutorialDialogOpen}
+	        onClose={() => setTutorialDialogOpen(false)}
+	      />
 
-      <section className="space-y-3">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Memory Definition
-        </h2>
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-2">
-            {MEMORY_ITEMS.map((item) => (
-              <div
-                key={item.type}
-                className="cursor-grab rounded border border-slate-200 bg-slate-50 px-2 py-2 text-center text-xs font-semibold text-slate-700"
-                draggable
-                onDragStart={(event) =>
-                  handleMemoryDragStart(event, item.type)
-                }
-              >
-                {item.label}
-              </div>
-            ))}
-          </div>
-          <button
-            type="button"
-            className={`w-full rounded px-3 py-1.5 text-xs font-semibold ${
-              canGroupStruct
-                ? "bg-slate-900 text-white"
-                : "bg-slate-200 text-slate-500"
-            }`}
-            onClick={groupSelectedIntoStruct}
-            disabled={!canGroupStruct}
-          >
-            Struct
-          </button>
-          <div className="text-xs text-slate-500">
-            Drag ints, arrays, or ptrs into Constants/Shared. Use + in Local Registers.
-            Select multiple items to enable Struct.
-          </div>
-        </div>
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Toolbox
-        </h2>
+	      <section className="space-y-3">
+	        <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+	          Toolbox
+	        </h2>
         <div className="grid grid-cols-2 gap-2">
           {TOOLBOX_ITEMS.map((item) => (
             <div

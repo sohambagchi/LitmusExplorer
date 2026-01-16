@@ -525,6 +525,9 @@ const EditorCanvas = () => {
   const addMemoryVar = useStore((state) => state.addMemoryVar);
   const updateMemoryVar = useStore((state) => state.updateMemoryVar);
   const deleteMemoryVar = useStore((state) => state.deleteMemoryVar);
+  const groupSelectedIntoStruct = useStore(
+    (state) => state.groupSelectedIntoStruct
+  );
   const validateGraph = useStore((state) => state.validateGraph);
   const edgeLabelMode = useStore((state) => state.edgeLabelMode);
   const focusedEdgeLabelId = useStore((state) => state.focusedEdgeLabelId);
@@ -1082,27 +1085,110 @@ const EditorCanvas = () => {
     [countVariableUsages, deleteMemoryVar, formatMemoryLabel]
   );
 
+  /**
+   * Adds a new memory variable of the requested type into a given scope.
+   *
+   * Notes:
+   * - Local registers (locals scope) get a generated name (`r0`, `p0`, ...) for
+   *   int/ptr so they behave like register slots.
+   *
+   * @param scope - Memory section (constants/locals/shared) to insert into.
+   * @param type - The memory variable type to create.
+   */
+  const addMemoryToScope = useCallback(
+    (scope: MemoryScope, type: MemoryType) => {
+      const id = createMemoryId();
+
+      if (type === "int") {
+        addMemoryVar({
+          id,
+          name: scope === "locals" ? getNextLocalRegisterName(memoryEnv, "int") : "",
+          type: "int",
+          scope,
+          value: "",
+        });
+        return;
+      }
+
+      if (type === "array") {
+        addMemoryVar({
+          id,
+          name: "",
+          type: "array",
+          scope,
+          elementType: "int",
+        });
+        return;
+      }
+
+      if (type === "ptr") {
+        addMemoryVar({
+          id,
+          name: scope === "locals" ? getNextLocalRegisterName(memoryEnv, "ptr") : "",
+          type: "ptr",
+          scope,
+          pointsToId: id,
+        });
+      }
+    },
+    [addMemoryVar, memoryEnv]
+  );
+
   const addLocalRegister = useCallback(() => {
-    const id = createMemoryId();
-    addMemoryVar({
-      id,
-      name: getNextLocalRegisterName(memoryEnv, "int"),
-      type: "int",
-      scope: "locals",
-      value: "",
-    });
-  }, [addMemoryVar, memoryEnv]);
+    addMemoryToScope("locals", "int");
+  }, [addMemoryToScope]);
 
   const addLocalPointer = useCallback(() => {
-    const id = createMemoryId();
-    addMemoryVar({
-      id,
-      name: getNextLocalRegisterName(memoryEnv, "ptr"),
-      type: "ptr",
-      scope: "locals",
-      pointsToId: id,
-    });
-  }, [addMemoryVar, memoryEnv]);
+    addMemoryToScope("locals", "ptr");
+  }, [addMemoryToScope]);
+
+  const addMemoryInt = useCallback(
+    (scope: MemoryScope) => {
+      addMemoryToScope(scope, "int");
+    },
+    [addMemoryToScope]
+  );
+
+  const addMemoryPtr = useCallback(
+    (scope: MemoryScope) => {
+      addMemoryToScope(scope, "ptr");
+    },
+    [addMemoryToScope]
+  );
+
+  const addMemoryArray = useCallback(
+    (scope: MemoryScope) => {
+      addMemoryToScope(scope, "array");
+    },
+    [addMemoryToScope]
+  );
+
+  const groupableStructScope = useMemo<MemoryScope | null>(() => {
+    const selectedTopLevel = memoryEnv.filter(
+      (item) =>
+        selectedMemoryIds.includes(item.id) &&
+        item.type !== "struct" &&
+        !item.parentId
+    );
+
+    if (selectedTopLevel.length < 2) {
+      return null;
+    }
+
+    const scopes = new Set(selectedTopLevel.map((item) => item.scope));
+    if (scopes.size !== 1) {
+      return null;
+    }
+
+    return selectedTopLevel[0]?.scope ?? null;
+  }, [memoryEnv, selectedMemoryIds]);
+
+  const memoryTypeButtonBase =
+    "inline-flex h-7 w-7 items-center justify-center rounded border text-[11px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-1";
+  const memoryTypeButtonLight =
+    "border-slate-200 bg-white text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50";
+  const memoryTypeButtonDark =
+    "border-slate-900 bg-slate-900 text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40";
 
   const nextThreadId = useMemo(() => {
     const numericIds = threadsForLayout
@@ -1295,63 +1381,6 @@ const EditorCanvas = () => {
       });
     },
     [displayLaneCount, setNodes]
-  );
-
-  const handleMemoryDragOver = useCallback((event: DragEvent) => {
-    if (event.dataTransfer.types.includes("application/litmus-memory")) {
-      event.preventDefault();
-      event.dataTransfer.dropEffect = "copy";
-    }
-  }, []);
-
-  const handleMemoryDrop = useCallback(
-    (event: DragEvent<HTMLDivElement>, scope: MemoryScope) => {
-      event.preventDefault();
-      const memoryType = event.dataTransfer.getData(
-        "application/litmus-memory"
-      ) as MemoryType;
-
-      if (!memoryType) {
-        return;
-      }
-
-      const id = createMemoryId();
-
-      if (memoryType === "int") {
-        const name =
-          scope === "locals" ? getNextLocalRegisterName(memoryEnv, "int") : "";
-        addMemoryVar({
-          id,
-          name,
-          type: "int",
-          scope,
-          value: "",
-        });
-        return;
-      }
-
-      if (memoryType === "array") {
-        addMemoryVar({
-          id,
-          name: "",
-          type: "array",
-          scope,
-          elementType: "int",
-        });
-        return;
-      }
-
-      if (memoryType === "ptr") {
-        addMemoryVar({
-          id,
-          name: "",
-          type: "ptr",
-          scope,
-          pointsToId: id,
-        });
-      }
-    },
-    [addMemoryVar, memoryEnv]
   );
 
   const handleNodeDragStop = useCallback(
@@ -1839,40 +1868,74 @@ const EditorCanvas = () => {
                 (item) => item.scope === section.scope && !item.parentId
               );
               const isLocalRegisters = section.scope === "locals";
+              const canGroupStructForSection =
+                groupableStructScope !== null && groupableStructScope === section.scope;
 
               return (
                 <div
                   key={section.scope}
                   className="rounded border border-slate-200 bg-slate-50 p-2"
-                  onDrop={
-                    isLocalRegisters
-                      ? undefined
-                      : (event) => handleMemoryDrop(event, section.scope)
-                  }
-                  onDragOver={isLocalRegisters ? undefined : handleMemoryDragOver}
                 >
                   <div className="mb-2 flex items-center justify-between text-[11px] font-semibold uppercase text-slate-500">
                     <span>{section.label}</span>
-                    {isLocalRegisters ? (
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          className="rounded border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                          onClick={addLocalRegister}
-                          aria-label="Add int register"
-                        >
-                          +int
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                          onClick={addLocalPointer}
-                          aria-label="Add pointer register"
-                        >
-                          +ptr
-                        </button>
-                      </div>
-                    ) : null}
+                    <div className="flex items-center gap-1">
+                      {isLocalRegisters ? (
+                        <>
+                          <button
+                            type="button"
+                            className={`${memoryTypeButtonBase} ${memoryTypeButtonLight}`}
+                            onClick={addLocalRegister}
+                            aria-label="Add int register"
+                          >
+                            +1
+                          </button>
+                          <button
+                            type="button"
+                            className={`${memoryTypeButtonBase} ${memoryTypeButtonLight}`}
+                            onClick={addLocalPointer}
+                            aria-label="Add pointer register"
+                          >
+                            +&
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className={`${memoryTypeButtonBase} ${memoryTypeButtonLight}`}
+                            onClick={() => addMemoryInt(section.scope)}
+                            aria-label={`Add int to ${section.label}`}
+                          >
+                            +1
+                          </button>
+                          <button
+                            type="button"
+                            className={`${memoryTypeButtonBase} ${memoryTypeButtonLight}`}
+                            onClick={() => addMemoryPtr(section.scope)}
+                            aria-label={`Add pointer to ${section.label}`}
+                          >
+                            +&
+                          </button>
+                          <button
+                            type="button"
+                            className={`${memoryTypeButtonBase} ${memoryTypeButtonLight}`}
+                            onClick={() => addMemoryArray(section.scope)}
+                            aria-label={`Add array to ${section.label}`}
+                          >
+                            +[]
+                          </button>
+                          <button
+                            type="button"
+                            className={`${memoryTypeButtonBase} ${memoryTypeButtonDark}`}
+                            onClick={groupSelectedIntoStruct}
+                            disabled={!canGroupStructForSection}
+                            aria-label={`Group selected into struct (${section.label})`}
+                          >
+                            {"{}"}
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                   <div className="space-y-2">
                     {sectionItems.length > 0 ? (
@@ -1884,8 +1947,8 @@ const EditorCanvas = () => {
                     ) : (
                       <div className="rounded border border-dashed border-slate-300 px-2 py-3 text-center text-xs text-slate-400">
                         {isLocalRegisters
-                          ? "Use + to add registers"
-                          : "Drop int, array, or ptr here"}
+                          ? "Use buttons above to add registers"
+                          : "Use buttons above to add memory"}
                       </div>
                     )}
                   </div>

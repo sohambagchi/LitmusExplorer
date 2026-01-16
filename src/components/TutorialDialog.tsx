@@ -76,19 +76,18 @@ const TutorialDialog = ({ open, onClose }: { open: boolean; onClose: () => void 
               </div>
               <ul className="list-disc space-y-1 pl-5">
                 <li>
-                  Use <span className="font-semibold">Memory Definition</span> to drag{" "}
-                  <span className="font-mono">int</span> / <span className="font-mono">array</span>{" "}
-                  into the canvas.
+                  Use the <span className="font-semibold">+</span> buttons in each memory section
+                  to add values/registers (int, ptr, array).
                 </li>
                 <li>
-                  Drop items into <span className="font-semibold">Constants</span> for fixed
-                  values, <span className="font-semibold">Local Registers</span> for per-thread
+                  Use <span className="font-semibold">Constants</span> for fixed values,{" "}
+                  <span className="font-semibold">Local Registers</span> for per-thread
                   temporaries, and <span className="font-semibold">Shared</span> for shared memory.
                 </li>
                 <li>
-                  Local registers are created with the{" "}
-                  <span className="font-semibold">+</span> button in{" "}
-                  <span className="font-semibold">Local Registers</span>.
+                  Select two or more items (same scope) and use{" "}
+                  <span className="font-mono">{"{}"}</span> to group them into a{" "}
+                  <span className="font-semibold">struct</span>.
                 </li>
                 <li>
                   Rename items to keep operations readable (arrays/structs can be nested; names

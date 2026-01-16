@@ -2,6 +2,21 @@ import { toPng } from "html-to-image";
 import { getNodesBounds, getViewportForBounds, type Node } from "reactflow";
 
 /**
+ * Returns true when a DOM node is explicitly marked as "exclude from PNG export".
+ *
+ * We use this to omit interactive, on-canvas-only UI (e.g. small node controls)
+ * from the exported image while keeping them visible during normal editing.
+ *
+ * @param node - DOM node visited by `html-to-image` while cloning the tree.
+ */
+const isPngExportExcludedNode = (node: globalThis.Node) => {
+  if (!(node instanceof Element)) {
+    return false;
+  }
+  return node.getAttribute("data-png-export-exclude") === "true";
+};
+
+/**
  * Triggers a client-side download for a data URL.
  * @param dataUrl Data URL (e.g. `data:image/png;base64,...`).
  * @param filename Download filename (e.g. `my-session.png`).
@@ -259,6 +274,7 @@ export const exportReactFlowViewportToPng = async ({
     width,
     height,
     pixelRatio,
+    filter: (node) => !isPngExportExcludedNode(node),
     style: {
       width: `${width}px`,
       height: `${height}px`,

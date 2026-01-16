@@ -87,6 +87,13 @@ const formatBranchRuleLabel = (
   return `${lhs}${rule.op}${rhs}`;
 };
 
+/**
+ * Renders a diamond-shaped branch node that evaluates a condition and exposes
+ * compact outcome controls ("True/False" + "Both") beside the node.
+ *
+ * Note: the outcome controls are marked with `data-png-export-exclude` so the
+ * PNG exporter can omit them while keeping them interactive on-canvas.
+ */
 const BranchNode = ({ id, data, selected }: NodeProps<TraceNodeData>) => {
   const memoryEnv = useStore((state) => state.memoryEnv);
   const setNodes = useStore((state) => state.setNodes);
@@ -167,7 +174,10 @@ const BranchNode = ({ id, data, selected }: NodeProps<TraceNodeData>) => {
           transform: "translate(-50%, -50%)",
         }}
       />
-      <div className="absolute left-full top-1/2 ml-2 flex -translate-y-1/2 items-center gap-1">
+      <div
+        className="absolute left-full top-1/2 ml-2 flex -translate-y-1/2 items-center gap-1"
+        data-png-export-exclude="true"
+      >
         <div
           className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ${
             evaluatedPath === "then"

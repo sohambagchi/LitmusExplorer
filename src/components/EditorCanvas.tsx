@@ -34,9 +34,10 @@ import BranchNode from "./BranchNode";
 import OperationNode from "./OperationNode";
 import RelationEdgeComponent from "./RelationEdge";
 import { createBranchGroupCondition } from "../utils/branchConditionFactory";
-import { evaluateBranchCondition } from "../utils/branchEvaluation";
+import { getVisibleTraceNodes } from "../utils/getVisibleTraceNodes";
 import ConfirmDialog from "./ConfirmDialog";
 import { exportReactFlowViewportToPng } from "../utils/exportReactFlowPng";
+import AlertDialog from "./AlertDialog";
 import { ChevronDown, ChevronUp, Copy, Info, RotateCcw, Trash2 } from "lucide-react";
 import { createUuid } from "../utils/createUuid";
 import { resolvePointerTargetById } from "../utils/resolvePointers";
@@ -556,6 +557,10 @@ const EditorCanvas = () => {
   const reactFlowWrapperRef = useRef<HTMLDivElement | null>(null);
   const [isLocked, setIsLocked] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [errorDialog, setErrorDialog] = useState<{
+    title: string;
+    description: string;
+  } | null>(null);
   const [isVisualKeyOpen, setIsVisualKeyOpen] = useState(false);
   const [pendingThreadDelete, setPendingThreadDelete] = useState<{
     threadId: string;
@@ -597,105 +602,7 @@ const EditorCanvas = () => {
   const edgeTypes = useMemo(() => ({ relation: RelationEdgeComponent }), []);
 
   const visibleNodes = useMemo(() => {
-    /**
-     * Global override: when enabled, we render every node regardless of the
-     * evaluated outcome of any BRANCH node (and regardless of per-branch "Both").
-     */
-    if (showAllNodes) {
-      return nodes;
-    }
-
-    const nodesById = new Map(nodes.map((node) => [node.id, node]));
-
-    const poOutgoing = new Map<string, string[]>();
-    for (const edge of edges) {
-      const relationType = edge.data?.relationType ?? "po";
-      if (relationType !== "po") {
-        continue;
-      }
-      const current = poOutgoing.get(edge.source) ?? [];
-      current.push(edge.target);
-      poOutgoing.set(edge.source, current);
-    }
-
-    const followPo = (startIds: string[], bucket: Set<string>) => {
-      const queue = [...startIds];
-      while (queue.length > 0) {
-        const nextId = queue.shift();
-        if (!nextId || bucket.has(nextId) || !nodesById.has(nextId)) {
-          continue;
-        }
-        bucket.add(nextId);
-        const outgoing = poOutgoing.get(nextId) ?? [];
-        for (const targetId of outgoing) {
-          if (!bucket.has(targetId)) {
-            queue.push(targetId);
-          }
-        }
-      }
-    };
-
-    const hidden = new Set<string>();
-    const branchNodes = nodes.filter(
-      (node) => node.data.operation.type === "BRANCH"
-    );
-
-    for (const branchNode of branchNodes) {
-      /**
-       * Default behavior is to show both paths unless the user explicitly
-       * disables it for a given branch.
-       */
-      if (branchNode.data.operation.branchShowBothFutures ?? true) {
-        continue;
-      }
-      const branchId = branchNode.id;
-      const condition = branchNode.data.operation.branchCondition;
-      if (!condition) {
-        continue;
-      }
-
-      const thenSet = new Set<string>();
-      const elseSet = new Set<string>();
-
-      for (const node of nodes) {
-        if (node.data.branchId !== branchId) {
-          continue;
-        }
-        if (node.data.branchPath === "then") {
-          thenSet.add(node.id);
-        } else if (node.data.branchPath === "else") {
-          elseSet.add(node.id);
-        }
-      }
-
-      const thenStarts = edges
-        .filter((edge) => edge.source === branchId && edge.sourceHandle === "then")
-        .map((edge) => edge.target);
-      const elseStarts = edges
-        .filter((edge) => edge.source === branchId && edge.sourceHandle === "else")
-        .map((edge) => edge.target);
-      followPo(thenStarts, thenSet);
-      followPo(elseStarts, elseSet);
-
-      if (thenSet.size === 0 && elseSet.size === 0) {
-        continue;
-      }
-
-      const thenExclusive = new Set(
-        [...thenSet].filter((nodeId) => !elseSet.has(nodeId))
-      );
-      const elseExclusive = new Set(
-        [...elseSet].filter((nodeId) => !thenSet.has(nodeId))
-      );
-
-      const outcome = evaluateBranchCondition(condition, memoryEnv);
-      const toHide = outcome ? elseExclusive : thenExclusive;
-      for (const nodeId of toHide) {
-        hidden.add(nodeId);
-      }
-    }
-
-    return nodes.filter((node) => !hidden.has(node.id));
+    return getVisibleTraceNodes({ nodes, edges, memoryEnv, showAllNodes });
   }, [edges, memoryEnv, nodes, showAllNodes]);
 
   const visibleNodeIds = useMemo(
@@ -1491,7 +1398,7 @@ const EditorCanvas = () => {
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to export image.";
-      window.alert(message);
+      setErrorDialog({ title: "Export failed", description: message });
     } finally {
       setIsExporting(false);
     }
@@ -2007,6 +1914,12 @@ const EditorCanvas = () => {
 
   return (
     <div className="flex h-full w-full flex-col">
+      <AlertDialog
+        open={Boolean(errorDialog)}
+        title={errorDialog?.title ?? "Error"}
+        description={errorDialog?.description ?? ""}
+        onClose={() => setErrorDialog(null)}
+      />
       <div
         className={`border-b border-slate-200 bg-white px-3 sm:px-4 ${
           isMemoryCollapsed ? "py-2" : "py-3"

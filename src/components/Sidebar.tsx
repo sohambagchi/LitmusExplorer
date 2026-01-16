@@ -20,6 +20,7 @@ import { useStore } from "../store/useStore";
 import { parseSessionSnapshot } from "../session/parseSessionSnapshot";
 import { parseLitmusTestToSessionSnapshot } from "../session/parseLitmusTest";
 import { createSessionSnapshot } from "../session/createSessionSnapshot";
+import { createC11LitmusTest, createHerdLitmusTest } from "../session/createHerdLitmusTest";
 import { createSessionFingerprint } from "../session/sessionFingerprint";
 import { checkEdgeConstraints } from "../utils/edgeConstraints";
 import BranchConditionEditor from "./BranchConditionEditor";
@@ -35,6 +36,7 @@ import SessionTitleDialog from "./SessionTitleDialog";
 import RelationDefinitionsDialog from "./RelationDefinitionsDialog";
 import TutorialDialog from "./TutorialDialog";
 import ConfirmDiscardDialog from "./ConfirmDiscardDialog";
+import AlertDialog from "./AlertDialog";
 import { ArrowRight, Trash2, X } from "lucide-react";
 
 type SidebarProps = {
@@ -235,6 +237,7 @@ const Sidebar = ({
   const threads = useStore((state) => state.threads);
   const threadLabels = useStore((state) => state.threadLabels);
   const memoryEnv = useStore((state) => state.memoryEnv);
+  const showAllNodes = useStore((state) => state.showAllNodes);
   const activeBranch = useStore((state) => state.activeBranch);
   const deleteNode = useStore((state) => state.deleteNode);
   const resetSession = useStore((state) => state.resetSession);
@@ -256,6 +259,9 @@ const Sidebar = ({
   const catFileInputRef = useRef<HTMLInputElement | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState<
+    "json" | "litmus-lkmm" | "litmus-c11"
+  >("json");
   const [relationDialogOpen, setRelationDialogOpen] = useState(false);
   const [tutorialDialogOpen, setTutorialDialogOpen] = useState(false);
   const basicTestSelectId = useId();
@@ -263,6 +269,10 @@ const Sidebar = ({
     return BASIC_TEST_FIXTURES[0]?.id ?? "";
   });
   const [discardBasicLoadOpen, setDiscardBasicLoadOpen] = useState(false);
+  const [errorDialog, setErrorDialog] = useState<{
+    title: string;
+    description: string;
+  } | null>(null);
 
   /**
    * Starts a blank session and lets the parent clear any UUID from the URL.
@@ -423,7 +433,84 @@ const Sidebar = ({
     ]
   );
 
+  const exportLitmusLkmm = useCallback(
+    (title: string) => {
+      const normalizedTitle = title.trim();
+      setSessionTitle(normalizedTitle);
+
+      const safeFilename = normalizedTitle
+        .replace(/[\\/:*?"<>|]+/g, "-")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      const litmus = createHerdLitmusTest({
+        title: normalizedTitle,
+        nodes,
+        edges,
+        threads,
+        memoryEnv,
+        showAllNodes,
+      });
+
+      const blob = new Blob([litmus], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = safeFilename ? `${safeFilename}.litmus` : "litmus-test.litmus";
+      link.click();
+      URL.revokeObjectURL(url);
+
+      // Export is treated as a "save" for purposes of discard confirmation prompts.
+      markSessionSaved();
+    },
+    [edges, memoryEnv, markSessionSaved, nodes, setSessionTitle, showAllNodes, threads]
+  );
+
+  const exportLitmusC11 = useCallback(
+    (title: string) => {
+      const normalizedTitle = title.trim();
+      setSessionTitle(normalizedTitle);
+
+      const safeFilename = normalizedTitle
+        .replace(/[\\/:*?"<>|]+/g, "-")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      const litmus = createC11LitmusTest({
+        title: normalizedTitle,
+        nodes,
+        edges,
+        threads,
+        memoryEnv,
+        showAllNodes,
+      });
+
+      const blob = new Blob([litmus], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = safeFilename ? `${safeFilename}.litmus` : "litmus-test.litmus";
+      link.click();
+      URL.revokeObjectURL(url);
+
+      // Export is treated as a "save" for purposes of discard confirmation prompts.
+      markSessionSaved();
+    },
+    [edges, memoryEnv, markSessionSaved, nodes, setSessionTitle, showAllNodes, threads]
+  );
+
   const handleExportSession = useCallback(() => {
+    setExportFormat("json");
+    setExportDialogOpen(true);
+  }, []);
+
+  const handleExportLitmusLkmm = useCallback(() => {
+    setExportFormat("litmus-lkmm");
+    setExportDialogOpen(true);
+  }, []);
+
+  const handleExportLitmusC11 = useCallback(() => {
+    setExportFormat("litmus-c11");
     setExportDialogOpen(true);
   }, []);
 
@@ -980,6 +1067,20 @@ const Sidebar = ({
           <button
             type="button"
             className="w-full rounded border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-800"
+            onClick={handleExportLitmusLkmm}
+          >
+            Export .litmus (LKMM macros)
+          </button>
+          <button
+            type="button"
+            className="w-full rounded border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-800"
+            onClick={handleExportLitmusC11}
+          >
+            Export .litmus (C11 atomics)
+          </button>
+          <button
+            type="button"
+            className="w-full rounded border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-800"
             onClick={() => sessionFileInputRef.current?.click()}
           >
             Import Session / Litmus
@@ -1138,11 +1239,42 @@ const Sidebar = ({
       <SessionTitleDialog
         open={exportDialogOpen}
         initialValue={sessionTitle}
+        description={
+          exportFormat === "json"
+            ? "This name is saved in the exported JSON and shown after import."
+            : exportFormat === "litmus-c11"
+              ? "This name is saved in the exported C11 .litmus file header."
+              : "This name is saved in the exported LKMM .litmus file header."
+        }
+        confirmLabel={exportFormat === "json" ? "Export JSON" : "Export .litmus"}
         onCancel={() => setExportDialogOpen(false)}
         onConfirm={(title) => {
           setExportDialogOpen(false);
-          exportSession(title);
+          try {
+            if (exportFormat === "json") {
+              exportSession(title);
+              return;
+            }
+            if (exportFormat === "litmus-c11") {
+              exportLitmusC11(title);
+              return;
+            }
+            exportLitmusLkmm(title);
+          } catch (error) {
+            setErrorDialog({
+              title: "Export failed",
+              description:
+                error instanceof Error ? error.message : "Failed to export session.",
+            });
+          }
         }}
+      />
+
+      <AlertDialog
+        open={Boolean(errorDialog)}
+        title={errorDialog?.title ?? "Error"}
+        description={errorDialog?.description ?? ""}
+        onClose={() => setErrorDialog(null)}
       />
 
       <ConfirmDiscardDialog

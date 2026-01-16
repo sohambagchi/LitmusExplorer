@@ -102,16 +102,17 @@ const TutorialDialog = ({ open, onClose }: { open: boolean; onClose: () => void 
               </div>
               <ul className="list-disc space-y-1 pl-5">
                 <li>
-                  In <span className="font-semibold">Model</span>, upload one or more{" "}
-                  <span className="font-mono">.cat</span> files.
+                  In the right-hand <span className="font-semibold">Model</span> sidebar, upload one
+                  or more <span className="font-mono">.cat</span> files.
+                </li>
+                <li>
+                  Relation definitions are shown inline in the sidebar after upload (the{" "}
+                  <span className="font-semibold">View Relation Definitions</span> button opens a
+                  larger view).
                 </li>
                 <li>
                   Litmus Explorer resolves <span className="font-mono">include</span> chains; if a
                   file is missing you’ll see a warning for missing includes.
-                </li>
-                <li>
-                  Use <span className="font-semibold">View Relation Definitions</span> to inspect
-                  resolved relation definitions gathered from all uploaded files.
                 </li>
               </ul>
             </section>

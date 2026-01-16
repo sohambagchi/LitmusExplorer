@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Menu, Share2 } from "lucide-react";
+import { Menu, Share2, SlidersHorizontal } from "lucide-react";
 import EditorCanvas from "./components/EditorCanvas";
 import Sidebar from "./components/Sidebar";
+import ModelSidebar from "./components/ModelSidebar";
 import SessionTitleDialog from "./components/SessionTitleDialog";
 import ShareDialog from "./components/ShareDialog";
 import { useStore } from "./store/useStore";
@@ -30,6 +31,19 @@ const App = () => {
     }
     return window.matchMedia("(min-width: 1024px)").matches;
   });
+  const [isModelSidebarDockedOpen, setIsModelSidebarDockedOpen] = useState(() => {
+    if (typeof window === "undefined") {
+      return true;
+    }
+    const stored = window.localStorage.getItem("litmus.modelSidebarDockedOpen");
+    if (stored === "true" || stored === "false") {
+      return stored === "true";
+    }
+    return typeof window.matchMedia === "function"
+      ? window.matchMedia("(min-width: 1024px)").matches
+      : true;
+  });
+  const [isModelSidebarDrawerOpen, setIsModelSidebarDrawerOpen] = useState(false);
   const [sharedSessionId, setSharedSessionId] = useState<string | null>(() => {
     if (typeof window === "undefined") {
       return null;
@@ -186,6 +200,16 @@ const App = () => {
   }, [isDesktop]);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(
+      "litmus.modelSidebarDockedOpen",
+      String(isModelSidebarDockedOpen)
+    );
+  }, [isModelSidebarDockedOpen]);
+
+  useEffect(() => {
     if (isDesktop || !isSidebarOpen) {
       return;
     }
@@ -201,6 +225,29 @@ const App = () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [isDesktop, isSidebarOpen]);
+
+  useEffect(() => {
+    if (isDesktop || !isModelSidebarDrawerOpen) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsModelSidebarDrawerOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isDesktop, isModelSidebarDrawerOpen]);
+
+  useEffect(() => {
+    if (isDesktop) {
+      setIsModelSidebarDrawerOpen(false);
+    }
+  }, [isDesktop]);
 
   useEffect(() => {
     if (sharedSessionId) {
@@ -259,16 +306,24 @@ const App = () => {
               >
                 <Menu className="h-4 w-4" aria-hidden="true" />
               </button>
-              <div className="min-w-0">
-                <div className="text-sm font-semibold tracking-wide">
-                  Litmus Explorer
-                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold tracking-wide">
+                    Litmus Explorer
+                  </div>
                 <div className="hidden text-xs text-slate-500 sm:block">
                   Drag operations, connect relations, and collapse branches.
                 </div>
               </div>
             </div>
             <div className="flex flex-none items-center gap-2 sm:gap-4">
+              <button
+                type="button"
+                className="inline-flex h-9 w-9 flex-none items-center justify-center rounded border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-1 lg:hidden"
+                onClick={() => setIsModelSidebarDrawerOpen(true)}
+                aria-label="Open model sidebar"
+              >
+                <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
+              </button>
               <button
                 type="button"
                 className="inline-flex items-center gap-2 rounded border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-60 sm:px-3"
@@ -328,6 +383,36 @@ const App = () => {
           )}
         </main>
       </div>
+      {isDesktop ? (
+        <ModelSidebar
+          open={isModelSidebarDockedOpen}
+          onToggleOpen={() => setIsModelSidebarDockedOpen((current) => !current)}
+        />
+      ) : (
+        <>
+          {isModelSidebarDrawerOpen ? (
+            <div
+              className="fixed inset-0 z-40 bg-slate-900/30"
+              role="button"
+              tabIndex={0}
+              aria-label="Close model sidebar overlay"
+              onClick={() => setIsModelSidebarDrawerOpen(false)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  setIsModelSidebarDrawerOpen(false);
+                }
+              }}
+            />
+          ) : null}
+          <div className="fixed inset-y-0 right-0 z-50">
+            <ModelSidebar
+              variant="drawer"
+              open={isModelSidebarDrawerOpen}
+              onRequestClose={() => setIsModelSidebarDrawerOpen(false)}
+            />
+          </div>
+        </>
+      )}
 
       <SessionTitleDialog
         open={shareNamingOpen}

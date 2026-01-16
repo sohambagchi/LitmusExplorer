@@ -540,6 +540,12 @@ const EditorCanvas = () => {
   const highlightOutboundDependencies = useStore(
     (state) => state.highlightOutboundDependencies
   );
+  const setHighlightInboundDependencies = useStore(
+    (state) => state.setHighlightInboundDependencies
+  );
+  const setHighlightOutboundDependencies = useStore(
+    (state) => state.setHighlightOutboundDependencies
+  );
   const toggleMemorySelection = useStore(
     (state) => state.toggleMemorySelection
   );
@@ -2344,6 +2350,36 @@ const EditorCanvas = () => {
                   : edgeLabelMode === "nonPo"
                     ? "Relations"
                     : "Off"}
+              </button>
+              <button
+                type="button"
+                className={`rounded px-2 py-1 text-xs font-semibold ${
+                  highlightInboundDependencies
+                    ? "bg-indigo-600 text-white"
+                    : "border border-slate-200 bg-white text-slate-700"
+                }`}
+                onClick={() =>
+                  setHighlightInboundDependencies(!highlightInboundDependencies)
+                }
+                aria-pressed={highlightInboundDependencies}
+                title="Highlight inbound dependency edges/nodes (ad/cd/dd) from the selected node"
+              >
+                Deps In
+              </button>
+              <button
+                type="button"
+                className={`rounded px-2 py-1 text-xs font-semibold ${
+                  highlightOutboundDependencies
+                    ? "bg-indigo-600 text-white"
+                    : "border border-slate-200 bg-white text-slate-700"
+                }`}
+                onClick={() =>
+                  setHighlightOutboundDependencies(!highlightOutboundDependencies)
+                }
+                aria-pressed={highlightOutboundDependencies}
+                title="Highlight outbound dependency edges/nodes (ad/cd/dd) from the selected node"
+              >
+                Deps Out
               </button>
               <button
                 type="button"

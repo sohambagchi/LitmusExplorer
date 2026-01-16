@@ -70,63 +70,6 @@ type ToolboxItem = {
   className?: string;
 };
 
-type ToggleSwitchProps = {
-  /**
-   * Visible label shown next to the toggle.
-   */
-  label: string;
-  /**
-   * Optional supporting text shown under the label.
-   */
-  description?: string;
-  /**
-   * Current checked state.
-   */
-  checked: boolean;
-  /**
-   * Called when the toggle changes.
-   */
-  onChange: (checked: boolean) => void;
-};
-
-/**
- * Accessible, Tailwind-styled toggle switch.
- *
- * Notes:
- * - Uses an underlying checkbox for native keyboard/AT behavior.
- * - Keeps styling self-contained so callers only provide state/handlers.
- */
-const ToggleSwitch = ({
-  label,
-  description,
-  checked,
-  onChange,
-}: ToggleSwitchProps) => {
-  return (
-    <label className="flex cursor-pointer items-start justify-between gap-4">
-      <span className="min-w-0">
-        <span className="block text-xs font-medium text-slate-700">{label}</span>
-        {description ? (
-          <span className="mt-0.5 block text-[11px] text-slate-500">
-            {description}
-          </span>
-        ) : null}
-      </span>
-      <span className="flex items-center">
-        <input
-          type="checkbox"
-          className="peer sr-only"
-          checked={checked}
-          onChange={(event) => onChange(event.target.checked)}
-        />
-        <span className="relative inline-flex h-5 w-9 flex-none items-center rounded-full bg-slate-300 transition-colors peer-checked:bg-indigo-600 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-indigo-600">
-          <span className="h-4 w-4 translate-x-0.5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
-        </span>
-      </span>
-    </label>
-  );
-};
-
 const TOOLBOX_ITEMS: ToolboxItem[] = [
   { label: "Load", type: "LOAD", nodeType: "operation" },
   { label: "Store", type: "STORE", nodeType: "operation" },
@@ -309,18 +252,6 @@ const Sidebar = ({
   const importCatFiles = useStore((state) => state.importCatFiles);
   const removeCatFile = useStore((state) => state.removeCatFile);
   const catModel = useStore((state) => state.catModel);
-  const highlightInboundDependencies = useStore(
-    (state) => state.highlightInboundDependencies
-  );
-  const highlightOutboundDependencies = useStore(
-    (state) => state.highlightOutboundDependencies
-  );
-  const setHighlightInboundDependencies = useStore(
-    (state) => state.setHighlightInboundDependencies
-  );
-  const setHighlightOutboundDependencies = useStore(
-    (state) => state.setHighlightOutboundDependencies
-  );
   const sessionFileInputRef = useRef<HTMLInputElement | null>(null);
   const catFileInputRef = useRef<HTMLInputElement | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
@@ -1647,25 +1578,6 @@ const Sidebar = ({
                 ) : null}
               </>
             )}
-            <div className="mt-1 rounded border border-slate-200 bg-slate-50 px-2 py-2">
-              <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                Dependency Highlight
-              </div>
-              <div className="mt-2 flex flex-col gap-2">
-                <ToggleSwitch
-                  label="Inbound"
-                  description="Prior nodes feeding dependencies into this."
-                  checked={highlightInboundDependencies}
-                  onChange={setHighlightInboundDependencies}
-                />
-                <ToggleSwitch
-                  label="Outbound"
-                  description="Later nodes that depend on values from this."
-                  checked={highlightOutboundDependencies}
-                  onChange={setHighlightOutboundDependencies}
-                />
-              </div>
-            </div>
             <button
               type="button"
               className="w-full rounded bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white"

@@ -239,6 +239,7 @@ const Sidebar = ({
   const deleteNode = useStore((state) => state.deleteNode);
   const resetSession = useStore((state) => state.resetSession);
   const importSession = useStore((state) => state.importSession);
+  const appendSession = useStore((state) => state.appendSession);
   const validateGraph = useStore((state) => state.validateGraph);
   const sessionTitle = useStore((state) => state.sessionTitle);
   const setSessionTitle = useStore((state) => state.setSessionTitle);
@@ -442,14 +443,14 @@ const Sidebar = ({
                 : { ...parsedSnapshot, title: fileTitle };
             })();
         onNewSession?.();
-        importSession(snapshot);
+        appendSession(snapshot);
       } catch (error) {
         setImportError(
           error instanceof Error ? error.message : "Failed to import session."
         );
       }
     },
-    [importSession, onNewSession]
+    [appendSession, onNewSession]
   );
 
   const currentSessionFingerprint = useMemo(

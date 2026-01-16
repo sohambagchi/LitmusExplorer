@@ -173,6 +173,14 @@ export type RelationEdgeData = {
   relationType: RelationType;
   invalid?: boolean;
   generated?: boolean;
+  /**
+   * UI-only highlight flag for render-time emphasis (e.g. when clicking a dependency edge).
+   *
+   * Notes:
+   * - This is intentionally not required and should not be persisted in exported sessions.
+   * - The canvas may set this field on a render-time copy of an edge.
+   */
+  highlighted?: boolean;
 };
 
 export type RelationEdge = Edge<RelationEdgeData>;

@@ -786,6 +786,35 @@ const getRelationColor = (relationType: RelationType) => {
   return `hsl(${hue} 65% 42%)`;
 };
 
+/**
+ * Returns the stroke used to highlight dependency bands.
+ *
+ * Notes:
+ * - Dependency edges (`ad`/`dd`/`cd`) render as translucent "bands"; the highlight
+ *   should be a darker, higher-contrast stroke in the same hue family.
+ * - We keep this mapping explicit so the highlight remains readable regardless
+ *   of how the base band opacity/width is tuned.
+ */
+const getDependencyHighlightStroke = (
+  relationType: RelationType,
+  invalid: boolean
+) => {
+  if (invalid) {
+    return "#b91c1c"; // tailwind red-700
+  }
+
+  switch (relationType) {
+    case "ad":
+      return "#a16207"; // tailwind amber-700
+    case "dd":
+      return "#0369a1"; // tailwind sky-700
+    case "cd":
+      return "#c2410c"; // tailwind orange-700
+    default:
+      return "#0f172a"; // tailwind slate-900
+  }
+};
+
 const RelationEdge = ({
   id,
   sourceX,
@@ -811,6 +840,7 @@ const RelationEdge = ({
   const isDependencyBand =
     relationType === "ad" || relationType === "cd" || relationType === "dd";
   const isGenerated = data?.generated ?? false;
+  const isHighlighted = data?.highlighted ?? false;
   const edgeLabelMode = useStore((state) => state.edgeLabelMode);
   const focusedEdgeLabelId = useStore((state) => state.focusedEdgeLabelId);
   const edgeOffsetPx = getBufferEdgeOffsetPx(id);
@@ -926,6 +956,11 @@ const RelationEdge = ({
 
   const stroke = (style?.stroke as string) ?? getRelationColor(relationType);
   const isSelected = selected ?? false;
+  const showDependencyHighlight = isDependencyBand && isHighlighted;
+  const dependencyHighlightStroke = getDependencyHighlightStroke(
+    relationType,
+    invalid
+  );
   const bandStrokeWidth =
     relationType === "ad" ? 14 : relationType === "cd" ? 12 : 12;
   const bandOpacity = relationType === "ad" ? 0.25 : 0.22;
@@ -1016,18 +1051,24 @@ const RelationEdge = ({
         id={id}
         path={edgePath}
         markerEnd={markerEnd}
-        interactionWidth={24}
+        interactionWidth={isDependencyBand ? (isGenerated ? 12 : 18) : 24}
         style={{
           ...style,
           stroke: invalid ? "#ef4444" : stroke,
           strokeWidth: isDependencyBand
-            ? bandStrokeWidth
+            ? showDependencyHighlight
+              ? bandStrokeWidth + 2
+              : bandStrokeWidth
             : invalid
               ? 2.5
               : isSelected
                 ? 2.75
                 : style?.strokeWidth ?? 1.75,
-          opacity: isDependencyBand ? bandOpacity : style?.opacity,
+          opacity: isDependencyBand
+            ? showDependencyHighlight
+              ? Math.min(0.62, bandOpacity + 0.28)
+              : bandOpacity
+            : style?.opacity,
           strokeLinecap: isDependencyBand ? "round" : style?.strokeLinecap,
           strokeDasharray: isSelected
             ? "5 4"
@@ -1036,6 +1077,21 @@ const RelationEdge = ({
               : style?.strokeDasharray,
         }}
       />
+      {showDependencyHighlight ? (
+        <BaseEdge
+          id={`${id}-highlight`}
+          path={edgePath}
+          markerEnd={markerEnd}
+          interactionWidth={0}
+          style={{
+            stroke: dependencyHighlightStroke,
+            strokeWidth: 3,
+            opacity: 0.95,
+            strokeLinecap: "round",
+            pointerEvents: "none",
+          }}
+        />
+      ) : null}
       {showLabel && labelAnchor ? (
         <EdgeLabelRenderer>
           <div

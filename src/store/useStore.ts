@@ -73,6 +73,22 @@ type StoreState = {
   activeBranch: ActiveBranch | null;
   edgeLabelMode: "all" | "nonPo" | "off";
   focusedEdgeLabelId: string | null;
+  /**
+   * When enabled, highlight dependency edges/nodes that flow into the selected node.
+   *
+   * Notes:
+   * - "Inbound" means following `ad`/`cd`/`dd` edges backward (target -> source).
+   * - Highlighting is a UI-only affordance and does not affect exported sessions.
+   */
+  highlightInboundDependencies: boolean;
+  /**
+   * When enabled, highlight dependency edges/nodes that flow out of the selected node.
+   *
+   * Notes:
+   * - "Outbound" means following `ad`/`cd`/`dd` edges forward (source -> target).
+   * - Highlighting is a UI-only affordance and does not affect exported sessions.
+   */
+  highlightOutboundDependencies: boolean;
   catModel: {
     filesByName: Record<string, string>;
     analysis: CatModelAnalysis | null;
@@ -134,6 +150,8 @@ type StoreState = {
   setActiveBranch: (branch: ActiveBranch | null) => void;
   cycleEdgeLabelMode: () => void;
   setFocusedEdgeLabelId: (edgeId: string | null) => void;
+  setHighlightInboundDependencies: (enabled: boolean) => void;
+  setHighlightOutboundDependencies: (enabled: boolean) => void;
   /**
    * Marks the current session as "saved" by updating `savedSessionFingerprint`.
    * Intended to be called after successful Export / Share actions.
@@ -526,6 +544,8 @@ export const useStore = create<StoreState>()((set, get) => ({
   activeBranch: null,
   edgeLabelMode: "nonPo",
   focusedEdgeLabelId: null,
+  highlightInboundDependencies: false,
+  highlightOutboundDependencies: false,
   catModel: { filesByName: {}, analysis: null, definitions: [], error: null },
   toggleShowAllNodes: () =>
     set((state) => ({
@@ -552,6 +572,10 @@ export const useStore = create<StoreState>()((set, get) => ({
       return { edgeLabelMode: next, focusedEdgeLabelId: null };
     }),
   setFocusedEdgeLabelId: (edgeId) => set({ focusedEdgeLabelId: edgeId }),
+  setHighlightInboundDependencies: (enabled) =>
+    set({ highlightInboundDependencies: enabled }),
+  setHighlightOutboundDependencies: (enabled) =>
+    set({ highlightOutboundDependencies: enabled }),
   markSessionSaved: () => {
     /**
      * This is used by UI actions that "save" without importing/resetting (e.g. Export).

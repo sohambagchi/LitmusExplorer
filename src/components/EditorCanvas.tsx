@@ -533,6 +533,12 @@ const EditorCanvas = () => {
   const focusedEdgeLabelId = useStore((state) => state.focusedEdgeLabelId);
   const cycleEdgeLabelMode = useStore((state) => state.cycleEdgeLabelMode);
   const setFocusedEdgeLabelId = useStore((state) => state.setFocusedEdgeLabelId);
+  const highlightInboundDependencies = useStore(
+    (state) => state.highlightInboundDependencies
+  );
+  const highlightOutboundDependencies = useStore(
+    (state) => state.highlightOutboundDependencies
+  );
   const toggleMemorySelection = useStore(
     (state) => state.toggleMemorySelection
   );
@@ -554,6 +560,19 @@ const EditorCanvas = () => {
     usageCount: number;
   } | null>(null);
   const [isMemoryCollapsed, setIsMemoryCollapsed] = useState(false);
+  const [focusedDependencyEdge, setFocusedDependencyEdge] = useState<{
+    edgeId: string;
+    sourceId: string;
+    targetId: string;
+  } | null>(null);
+
+  /**
+   * Currently selected node id (used to compute inbound/outbound dependency highlighting).
+   */
+  const selectedNodeId = useMemo(() => {
+    const selectedNode = nodes.find((node) => node.selected);
+    return selectedNode?.id ?? null;
+  }, [nodes]);
 
   /**
    * Toggle the memory strip between expanded and collapsed states.
@@ -787,10 +806,8 @@ const EditorCanvas = () => {
           source: source.id,
           target: target.id,
           focusable: false,
-          interactionWidth: 0,
           deletable: false,
           zIndex: 0,
-          style: { pointerEvents: "none" },
           data: { relationType, generated: true },
         });
       };
@@ -965,11 +982,136 @@ const EditorCanvas = () => {
     [edgesWithDerived, visibleNodeIds]
   );
 
+  /**
+   * Computes the dependency subgraph to highlight from the currently selected node.
+   *
+   * Notes:
+   * - Inbound highlighting follows dependency edges backward (target -> source).
+   * - Outbound highlighting follows dependency edges forward (source -> target).
+   * - This is intentionally separate from React Flow selection so highlighting
+   *   does not change which node/edge the sidebar is editing.
+   */
+  const dependencyTraversalHighlight = useMemo(() => {
+    const highlightNodeIds = new Set<string>();
+    const highlightEdgeIds = new Set<string>();
+
+    if (
+      !selectedNodeId ||
+      (!highlightInboundDependencies && !highlightOutboundDependencies)
+    ) {
+      return { highlightNodeIds, highlightEdgeIds };
+    }
+
+    const dependencyTypes = new Set(["ad", "cd", "dd"]);
+    const dependencyEdges = edgesToRender.filter((edge) =>
+      dependencyTypes.has(edge.data?.relationType ?? "po")
+    );
+
+    const outboundBySource = new Map<string, typeof dependencyEdges>();
+    const inboundByTarget = new Map<string, typeof dependencyEdges>();
+    for (const edge of dependencyEdges) {
+      const outbound = outboundBySource.get(edge.source) ?? [];
+      outbound.push(edge);
+      outboundBySource.set(edge.source, outbound);
+
+      const inbound = inboundByTarget.get(edge.target) ?? [];
+      inbound.push(edge);
+      inboundByTarget.set(edge.target, inbound);
+    }
+
+    const visitInbound = () => {
+      const visited = new Set<string>([selectedNodeId]);
+      const queue = [selectedNodeId];
+
+      while (queue.length > 0) {
+        const currentId = queue.shift();
+        if (!currentId) {
+          continue;
+        }
+
+        const edges = inboundByTarget.get(currentId) ?? [];
+        for (const edge of edges) {
+          highlightEdgeIds.add(edge.id);
+          highlightNodeIds.add(edge.source);
+          highlightNodeIds.add(edge.target);
+
+          if (!visited.has(edge.source)) {
+            visited.add(edge.source);
+            queue.push(edge.source);
+          }
+        }
+      }
+    };
+
+    const visitOutbound = () => {
+      const visited = new Set<string>([selectedNodeId]);
+      const queue = [selectedNodeId];
+
+      while (queue.length > 0) {
+        const currentId = queue.shift();
+        if (!currentId) {
+          continue;
+        }
+
+        const edges = outboundBySource.get(currentId) ?? [];
+        for (const edge of edges) {
+          highlightEdgeIds.add(edge.id);
+          highlightNodeIds.add(edge.source);
+          highlightNodeIds.add(edge.target);
+
+          if (!visited.has(edge.target)) {
+            visited.add(edge.target);
+            queue.push(edge.target);
+          }
+        }
+      }
+    };
+
+    if (highlightInboundDependencies) {
+      visitInbound();
+    }
+    if (highlightOutboundDependencies) {
+      visitOutbound();
+    }
+
+    return { highlightNodeIds, highlightEdgeIds };
+  }, [
+    edgesToRender,
+    highlightInboundDependencies,
+    highlightOutboundDependencies,
+    selectedNodeId,
+  ]);
+
+  const highlightedDependencyEdgeIds = useMemo(() => {
+    const out = new Set(dependencyTraversalHighlight.highlightEdgeIds);
+    if (focusedDependencyEdge) {
+      out.add(focusedDependencyEdge.edgeId);
+    }
+    return out;
+  }, [dependencyTraversalHighlight.highlightEdgeIds, focusedDependencyEdge]);
+
+  const highlightedDependencyNodeIds = useMemo(() => {
+    const out = new Set(dependencyTraversalHighlight.highlightNodeIds);
+    if (focusedDependencyEdge) {
+      out.add(focusedDependencyEdge.sourceId);
+      out.add(focusedDependencyEdge.targetId);
+    }
+    return out;
+  }, [dependencyTraversalHighlight.highlightNodeIds, focusedDependencyEdge]);
+
   const edgesToRenderWithArrows = useMemo(() => {
     // Ensure every edge gets a visible arrowhead pointing at the dst/target handle.
     // We keep this as a render-time default so sessions don’t need to persist marker settings.
     return edgesToRender.map((edge) => {
-      if (edge.markerEnd) {
+      const isHighlighted = highlightedDependencyEdgeIds.has(edge.id);
+      const nextData =
+        isHighlighted && edge.data
+          ? { ...edge.data, highlighted: true }
+          : isHighlighted
+            ? { relationType: "po", highlighted: true }
+            : edge.data;
+
+      if (edge.markerEnd && !isHighlighted) {
         return edge;
       }
 
@@ -985,7 +1127,8 @@ const EditorCanvas = () => {
 
       return {
         ...edge,
-        markerEnd: {
+        data: nextData,
+        markerEnd: edge.markerEnd ?? {
           type: MarkerType.ArrowClosed,
           color,
           width: DEFAULT_EDGE_ARROW_SIZE,
@@ -994,7 +1137,7 @@ const EditorCanvas = () => {
         },
       };
     });
-  }, [edgesToRender]);
+  }, [edgesToRender, highlightedDependencyEdgeIds]);
 
   const threadsForLayout = useMemo(
     () => getThreadsForLayout(threads, nodes),
@@ -1973,10 +2116,21 @@ const EditorCanvas = () => {
 	              <div className="relative h-full">
 	                <LaneBackgroundOverlay threads={threadsForLayout} />
 	                <ReactFlow
-	                  nodes={visibleNodes.map((node) => ({
-	                    ...node,
-	                    position: transposeXY(node.position),
-	                  }))}
+	                  nodes={visibleNodes.map((node) => {
+	                    const shouldHighlight =
+	                      highlightedDependencyNodeIds.has(node.id) && !node.selected;
+	                    const highlightClass =
+	                      "rounded-md ring-2 ring-indigo-600 ring-offset-2 ring-offset-slate-100";
+	                    const mergedClassName = shouldHighlight
+	                      ? `${node.className ? `${node.className} ` : ""}${highlightClass}`
+	                      : node.className;
+
+	                    return {
+	                      ...node,
+	                      className: mergedClassName,
+	                      position: transposeXY(node.position),
+	                    };
+	                  })}
 	                  edges={edgesToRenderWithArrows}
 	                  nodeTypes={nodeTypes}
 	                  edgeTypes={edgeTypes}
@@ -1989,21 +2143,39 @@ const EditorCanvas = () => {
 	                  snapToGrid={false}
 	                  nodesDraggable={!isLocked}
 	                  nodesConnectable={!isLocked}
+	                  onNodeClick={() => {
+	                    setFocusedDependencyEdge(null);
+	                  }}
 	                  onNodesChange={handleNodesChange}
 	                  onEdgesChange={onEdgesChange}
 	                  onEdgeClick={(_event, edge) => {
-	                    if (edgeLabelMode !== "off") {
-	                      return;
+	                    const relationType = edge.data?.relationType ?? "po";
+	                    const isDependency =
+	                      relationType === "ad" ||
+	                      relationType === "cd" ||
+	                      relationType === "dd";
+
+	                    if (isDependency) {
+	                      setFocusedDependencyEdge({
+	                        edgeId: edge.id,
+	                        sourceId: edge.source,
+	                        targetId: edge.target,
+	                      });
+	                    } else {
+	                      setFocusedDependencyEdge(null);
 	                    }
-	                    setFocusedEdgeLabelId(
-	                      focusedEdgeLabelId === edge.id ? null : edge.id
-	                    );
+
+	                    if (edgeLabelMode === "off") {
+	                      setFocusedEdgeLabelId(
+	                        focusedEdgeLabelId === edge.id ? null : edge.id
+	                      );
+	                    }
 	                  }}
 	                  onPaneClick={() => {
-	                    if (edgeLabelMode !== "off") {
-	                      return;
+	                    setFocusedDependencyEdge(null);
+	                    if (edgeLabelMode === "off") {
+	                      setFocusedEdgeLabelId(null);
 	                    }
-	                    setFocusedEdgeLabelId(null);
 	                  }}
 	                  onNodeDragStop={handleNodeDragStop}
 	                  onConnect={handleConnect}
